@@ -42,6 +42,9 @@ type RunnerConfig struct {
 	ImagePullPolicy string   `yaml:"image_pull_policy" validate:"required,oneof=Always Never IfNotPresent"`
 	Image           string   `yaml:"image" validate:"required"`
 	Organization    string   `yaml:"organization" validate:"required"`
+	// Repository, when set, registers repo-level runners for Organization/Repository
+	// instead of org-level ones (needed for personal accounts).
+	Repository string `yaml:"repository"`
 	GroupID         int64    `yaml:"group_id" validate:"required"`
 	Labels          []string `yaml:"labels" validate:"required"`
 }

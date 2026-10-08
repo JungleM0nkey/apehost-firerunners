@@ -493,7 +493,13 @@ func (p *Pool) createMachine(ctx context.Context) error {
 
 	installationID := p.installationID.Load()
 	if installationID == 0 {
-		installation, _, err := p.github.Apps.FindOrganizationInstallation(ctx, p.config.Runner.Organization)
+		var installation *githubv63.Installation
+		var err error
+		if repo := p.config.Runner.Repository; repo != "" {
+			installation, _, err = p.github.Apps.FindRepositoryInstallation(ctx, p.config.Runner.Organization, repo)
+		} else {
+			installation, _, err = p.github.Apps.FindOrganizationInstallation(ctx, p.config.Runner.Organization)
+		}
 		if err != nil {
 			return fmt.Errorf("github: %w", err)
 		}
@@ -503,11 +509,17 @@ func (p *Pool) createMachine(ctx context.Context) error {
 	}
 
 	client := p.github.Installation(installationID)
-	jitConfig, _, err := client.Actions.GenerateOrgJITConfig(ctx, p.config.Runner.Organization, &githubv63.GenerateJITConfigRequest{
+	jitReq := &githubv63.GenerateJITConfigRequest{
 		Name:          runnerName,
 		RunnerGroupID: p.config.Runner.GroupID,
 		Labels:        p.config.Runner.Labels,
-	})
+	}
+	var jitConfig *githubv63.JITRunnerConfig
+	if repo := p.config.Runner.Repository; repo != "" {
+		jitConfig, _, err = client.Actions.GenerateRepoJITConfig(ctx, p.config.Runner.Organization, repo, jitReq)
+	} else {
+		jitConfig, _, err = client.Actions.GenerateOrgJITConfig(ctx, p.config.Runner.Organization, jitReq)
+	}
 	if err != nil {
 		return fmt.Errorf("github: %w", err)
 	}
@@ -677,7 +689,12 @@ func (p *Pool) deleteGitHubRunner(runnerName string, runnerID int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.Actions.RemoveOrganizationRunner(ctx, p.config.Runner.Organization, runnerID)
+	var err error
+	if repo := p.config.Runner.Repository; repo != "" {
+		_, err = client.Actions.RemoveRunner(ctx, p.config.Runner.Organization, repo, runnerID)
+	} else {
+		_, err = client.Actions.RemoveOrganizationRunner(ctx, p.config.Runner.Organization, runnerID)
+	}
 	if err != nil {
 		p.logger.Error().Err(err).Msgf("Failed to delete GitHub runner %s (ID: %d)", runnerName, runnerID)
 		return
