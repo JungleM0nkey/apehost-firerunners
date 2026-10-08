@@ -11,7 +11,8 @@ import (
 )
 
 // The committed fleet must always render, and podbox's rendered config must
-// match the hand-written one it replaces (apart from the key now being a file).
+// match the hand-written one it replaces (apart from the key now being a
+// file, and the runner image, which the runner-image workflow bumps).
 func TestDeployFleet_PodboxMatchesHandWrittenConfig(t *testing.T) {
 	b, err := os.ReadFile("../deploy/fleet.yaml")
 	require.NoError(t, err)
@@ -35,5 +36,12 @@ func TestDeployFleet_PodboxMatchesHandWrittenConfig(t *testing.T) {
 	assert.Equal(t, handWritten.GitHub.AppID, rendered.GitHub.AppID)
 	assert.Equal(t, "/etc/fireactions/app.pem", rendered.GitHub.AppPrivateKeyFile)
 	assert.Empty(t, rendered.GitHub.AppPrivateKey, "the key stays in its own file")
+	// The runner image is bumped by the runner-image workflow, so it may
+	// differ from the hand-written snapshot; everything else must match.
+	require.Len(t, rendered.Pools, len(handWritten.Pools))
+	for i := range rendered.Pools {
+		assert.NotEmpty(t, rendered.Pools[i].Runner.Image)
+		rendered.Pools[i].Runner.Image = handWritten.Pools[i].Runner.Image
+	}
 	assert.Equal(t, handWritten.Pools, rendered.Pools)
 }
