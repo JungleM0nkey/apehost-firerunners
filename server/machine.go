@@ -29,6 +29,11 @@ type Machine struct {
 	vmmCtx      context.Context
 	vmmCancel   context.CancelFunc
 	done        chan struct{}
+
+	// deregister removes the runner from GitHub. GitHub refuses while the
+	// runner is running a job, which makes it the final busy check before a
+	// scale-down stop. It is idempotent.
+	deregister func(ctx context.Context) error
 }
 
 var _ VM = (*Machine)(nil)
@@ -100,8 +105,19 @@ func (m *Machine) RunnerVersion(ctx context.Context) (string, error) {
 	return resp.GetVersion(), nil
 }
 
-// Stop implements VM.
-func (m *Machine) Stop(_ context.Context) error {
+// Stop implements VM. It stops the VM only if the agent reports the runner as
+// idle and GitHub agrees to remove the runner; once removed, the runner can't
+// be assigned a job, so stopping it can't kill one.
+func (m *Machine) Stop(ctx context.Context) error {
+	state, err := m.RunnerState(ctx)
+	if err != nil || state != RunnerStateIdle {
+		return fmt.Errorf("%w: runner state %s", ErrRunnerBusy, state)
+	}
+
+	if err := m.deregister(ctx); err != nil {
+		return fmt.Errorf("%w: removing runner from GitHub: %w", ErrRunnerBusy, err)
+	}
+
 	return m.StopVMM()
 }
 

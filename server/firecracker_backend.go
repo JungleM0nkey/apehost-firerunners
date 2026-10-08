@@ -213,6 +213,17 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 		vmmCancel:   vmmCancel,
 		done:        make(chan struct{}),
 	}
+	var deregistered atomic.Bool
+	machine.deregister = func(ctx context.Context) error {
+		if deregistered.Load() {
+			return nil
+		}
+		if err := b.deleteGitHubRunner(ctx, runnerName, machine.RunnerID); err != nil {
+			return err
+		}
+		deregistered.Store(true)
+		return nil
+	}
 
 	go b.cleanupOnExit(ctx, machine)
 
@@ -245,7 +256,11 @@ func (b *firecrackerBackend) cleanupOnExit(ctx context.Context, machine *Machine
 
 	machine.vmmCancel()
 
-	b.deleteGitHubRunner(runnerName, machine.RunnerID)
+	deregisterCtx, deregisterCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer deregisterCancel()
+	if err := machine.deregister(deregisterCtx); err != nil {
+		b.logger.Error().Err(err).Msgf("Failed to delete GitHub runner %s (ID: %d)", runnerName, machine.RunnerID)
+	}
 
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -310,21 +325,19 @@ func (b *firecrackerBackend) createSnapshot(ctx context.Context, image container
 	return mounts, nil
 }
 
-// deleteGitHubRunner removes a runner from GitHub Actions
-func (b *firecrackerBackend) deleteGitHubRunner(runnerName string, runnerID int64) {
+// deleteGitHubRunner removes a runner from GitHub Actions. GitHub refuses to
+// remove a runner that is running a job.
+func (b *firecrackerBackend) deleteGitHubRunner(ctx context.Context, runnerName string, runnerID int64) error {
 	if runnerID == 0 {
 		b.logger.Debug().Msgf("No GitHub runner ID found for %s, skipping deletion", runnerName)
-		return
+		return nil
 	}
 
 	if b.installationID.Load() == 0 {
-		b.logger.Warn().Msgf("No installation ID available, cannot delete runner %s", runnerName)
-		return
+		return fmt.Errorf("no installation ID available, cannot delete runner %s", runnerName)
 	}
 
 	client := b.github.Installation(b.installationID.Load())
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	var err error
 	if repo := b.config.Runner.Repository; repo != "" {
@@ -333,11 +346,11 @@ func (b *firecrackerBackend) deleteGitHubRunner(runnerName string, runnerID int6
 		_, err = client.Actions.RemoveOrganizationRunner(ctx, b.config.Runner.Organization, runnerID)
 	}
 	if err != nil {
-		b.logger.Error().Err(err).Msgf("Failed to delete GitHub runner %s (ID: %d)", runnerName, runnerID)
-		return
+		return err
 	}
 
 	b.logger.Debug().Msgf("Successfully deleted GitHub runner %s (ID: %d)", runnerName, runnerID)
+	return nil
 }
 
 func init() {

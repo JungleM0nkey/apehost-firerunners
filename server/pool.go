@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -151,9 +153,11 @@ func (p *Pool) reconcile() {
 	metricPoolRunnersPending.
 		WithLabelValues(p.config.Name, p.config.Runner.Organization).Set(float64(pendingCreates))
 
+	// A paused pool drains: it creates nothing and stops VMs as they become
+	// idle, while busy VMs finish their job and exit.
 	if !p.active.Load() {
-		p.logger.Debug().Msgf("Pool %s is paused, skipping scaling", p.config.Name)
-		return
+		p.logger.Debug().Msgf("Pool %s is paused, draining", p.config.Name)
+		desired = 0
 	}
 
 	// Effective size accounts for in-flight creates
@@ -163,7 +167,7 @@ func (p *Pool) reconcile() {
 		p.logger.Debug().Msgf("Scaling up by %d VMs (target: %d, current: %d, pending creates: %d)",
 			delta, desired, curSize, pendingCreates)
 		p.scaleUp(delta)
-	case delta < 0:
+	case delta < 0 && curSize > 0:
 		p.logger.Debug().Msgf("Scaling down by %d VMs (target: %d, current: %d, pending creates: %d)",
 			-delta, desired, curSize, pendingCreates)
 		p.scaleDown(-delta)
@@ -220,48 +224,104 @@ func (p *Pool) track(vm VM) {
 	}()
 }
 
+// scaleDown stops up to count idle VMs. Busy VMs are never stopped: if there
+// aren't enough idle VMs, the rest is retried on the next reconcile.
 func (p *Pool) scaleDown(count int) {
-	victims := p.pickVictims(count)
+	idle := p.idleVMs()
+	if len(idle) == 0 {
+		p.logger.Info().Msgf("Scale-down of %d VMs deferred: no idle VMs", count)
+		return
+	}
 
-	for _, v := range victims {
-		name := v.vm.Info().Name
+	for _, vm := range idle {
+		if count == 0 {
+			break
+		}
+
+		name := vm.Info().Name
+		if !p.markStopping(name, true) {
+			continue
+		}
+
 		start := time.Now()
+		err := vm.Stop(p.ctx)
+		if err != nil {
+			p.markStopping(name, false)
 
-		if err := v.vm.Stop(p.ctx); err != nil {
-			p.vmsMu.Lock()
-			v.stopping = false
-			p.vmsMu.Unlock()
+			if errors.Is(err, ErrRunnerBusy) {
+				p.logger.Info().Msgf("Skipped scale-down of VM %s: runner picked up a job", name)
+				continue
+			}
 
 			metricScaleOperations.WithLabelValues(p.config.Name, p.config.Runner.Organization, "down", "failure").Inc()
 			p.logger.Warn().Err(err).Msgf("Failed to stop VM %s", name)
 			continue
 		}
 
+		count--
 		metricScaleOperations.WithLabelValues(p.config.Name, p.config.Runner.Organization, "down", "success").Inc()
 		metricScaleDuration.WithLabelValues(p.config.Name, p.config.Runner.Organization, "down").Observe(time.Since(start).Seconds())
-		p.logger.Info().Msgf("Successfully removed VM %s", name)
+		p.logger.Info().Msgf("Stopped idle VM %s for scale-down", name)
+	}
+
+	if count > 0 {
+		p.logger.Info().Msgf("Scale-down of %d more VMs deferred: remaining VMs are busy", count)
 	}
 }
 
-// pickVictims marks up to count VMs as stopping and returns them.
-func (p *Pool) pickVictims(count int) []*poolVM {
+// idleVMs asks every VM in the pool for its runner state and returns those
+// whose runner is idle, sorted by name.
+func (p *Pool) idleVMs() []VM {
+	p.vmsMu.Lock()
+	candidates := make([]VM, 0, len(p.vms))
+	for _, v := range p.vms {
+		if !v.stopping {
+			candidates = append(candidates, v.vm)
+		}
+	}
+	p.vmsMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(p.ctx, 3*time.Second)
+	defer cancel()
+
+	states := make([]string, len(candidates))
+	var wg sync.WaitGroup
+	for i, vm := range candidates {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Errors leave the state Unknown, which counts as busy.
+			states[i], _ = vm.RunnerState(ctx)
+		}()
+	}
+	wg.Wait()
+
+	idle := make([]VM, 0, len(candidates))
+	for i, vm := range candidates {
+		if states[i] == RunnerStateIdle {
+			idle = append(idle, vm)
+		} else {
+			p.logger.Debug().Msgf("VM %s is not idle (runner state %s), not a scale-down candidate", vm.Info().Name, states[i])
+		}
+	}
+
+	sort.Slice(idle, func(i, j int) bool { return idle[i].Info().Name < idle[j].Info().Name })
+	return idle
+}
+
+// markStopping sets the stopping flag of a VM. Setting it fails if the VM is
+// gone or already stopping.
+func (p *Pool) markStopping(name string, stopping bool) bool {
 	p.vmsMu.Lock()
 	defer p.vmsMu.Unlock()
 
-	victims := make([]*poolVM, 0, count)
-	for _, v := range p.vms {
-		if len(victims) == count {
-			break
-		}
-		if v.stopping {
-			continue
-		}
-
-		v.stopping = true
-		victims = append(victims, v)
+	v, ok := p.vms[name]
+	if !ok || (stopping && v.stopping) {
+		return false
 	}
 
-	return victims
+	v.stopping = stopping
+	return true
 }
 
 // Stop stops the pool. Stopping the pool will stop all the VMs in the pool.
@@ -313,17 +373,19 @@ func (p *Pool) Stop() {
 	p.logger.Debug().Msgf("Pool %s stopped", p.config.Name)
 }
 
-// Pause pauses the pool. Pausing the pool will prevent the pool from scaling.
+// Pause drains the pool: no new VMs are created, idle VMs are stopped, and
+// busy VMs finish their job and exit without being replaced.
 func (p *Pool) Pause() {
 	if p.active.CompareAndSwap(true, false) {
-		p.logger.Debug().Msgf("Pool %s state changed to paused", p.config.Name)
+		p.logger.Info().Msgf("Pool %s state changed to paused (draining)", p.config.Name)
+		p.TriggerScale()
 	}
 }
 
 // Resume resumes the pool. Resuming the pool will allow the pool to scale.
 func (p *Pool) Resume() {
 	if p.active.CompareAndSwap(false, true) {
-		p.logger.Debug().Msgf("Pool %s state changed to active", p.config.Name)
+		p.logger.Info().Msgf("Pool %s state changed to active", p.config.Name)
 		p.TriggerScale()
 	}
 }
