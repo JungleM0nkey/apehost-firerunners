@@ -137,6 +137,7 @@ func (a *Agent) runGitHubRunner(ctx context.Context) {
 	a.runner = runner.New(
 		a.cfg.RunnerJITConfig,
 		runner.WithLogger(a.logger),
+		runner.WithEnv(a.cfg.RunnerEnv),
 	)
 
 	if err := a.runner.Run(ctx); err != nil {

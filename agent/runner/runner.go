@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/hostinger/fireactions/helper/envvar"
 	"github.com/rs/zerolog"
 )
 
@@ -42,6 +43,7 @@ type Runner struct {
 	stdout    io.Writer
 	stderr    io.Writer
 	logger    *zerolog.Logger
+	env       map[string]string
 
 	stateMu sync.RWMutex
 	state   RunnerState
@@ -81,6 +83,16 @@ func WithLogger(logger *zerolog.Logger) Opt {
 func WithDirectory(dir string) Opt {
 	f := func(r *Runner) {
 		r.directory = dir
+	}
+
+	return f
+}
+
+// WithEnv adds variables to the runner process environment. Every job step
+// inherits them. Values are never logged.
+func WithEnv(env map[string]string) Opt {
+	f := func(r *Runner) {
+		r.env = env
 	}
 
 	return f
@@ -221,15 +233,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)},
 	}
 
-	runCmd.Env = append(
-		runCmd.Env,
-		fmt.Sprintf("PATH=%s", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
-		fmt.Sprintf("LOGNAME=%s", owner.Username),
-		fmt.Sprintf("HOME=%s", owner.HomeDir),
-		fmt.Sprintf("USER=%s", owner.Username),
-		fmt.Sprintf("UID=%d", uid),
-		fmt.Sprintf("GID=%d", gid),
-	)
+	runCmd.Env = r.processEnv(owner, uid, gid)
+	if len(r.env) > 0 {
+		r.logger.Info().Strs("names", envvar.Names(r.env)).Msg("Adding pool environment variables to the runner")
+	}
 
 	if err := runCmd.Start(); err != nil {
 		r.setState(StateError)
@@ -247,6 +254,22 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	r.setState(StateExited)
 	return nil
+}
+
+// processEnv returns the runner process environment: a fixed base plus the
+// pool's variables. Pool variables can't override the base (the config
+// rejects reserved names).
+func (r *Runner) processEnv(owner *user.User, uid, gid int) []string {
+	env := []string{
+		fmt.Sprintf("PATH=%s", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"),
+		fmt.Sprintf("LOGNAME=%s", owner.Username),
+		fmt.Sprintf("HOME=%s", owner.HomeDir),
+		fmt.Sprintf("USER=%s", owner.Username),
+		fmt.Sprintf("UID=%d", uid),
+		fmt.Sprintf("GID=%d", gid),
+	}
+
+	return append(env, envvar.Pairs(r.env)...)
 }
 
 // pipeToLogger reads from stdout and logs each line, detecting when runner reaches idle state.

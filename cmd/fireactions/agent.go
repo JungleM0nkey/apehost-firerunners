@@ -46,6 +46,11 @@ func runAgentCmd(cmd *cobra.Command, _ []string) error {
 
 	shutdownOnExit, _ := metadata["shutdown_on_exit"].(bool)
 
+	runnerEnv, err := agent.EnvFromMetadata(metadata)
+	if err != nil {
+		return fmt.Errorf("pool env: %w", err)
+	}
+
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -55,6 +60,7 @@ func runAgentCmd(cmd *cobra.Command, _ []string) error {
 		Hostname:        hostname,
 		LogLevel:        logLevel,
 		ShutdownOnExit:  shutdownOnExit,
+		RunnerEnv:       runnerEnv,
 	})
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)

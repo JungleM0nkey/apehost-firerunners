@@ -179,14 +179,7 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 		return nil, fmt.Errorf("github: %w", err)
 	}
 
-	metadata := map[string]interface{}{"latest": map[string]interface{}{"meta-data": deepcopy.Map(b.config.Firecracker.Metadata)}}
-	metadata["latest"].(map[string]interface{})["meta-data"].(map[string]interface{})["fireactions"] = map[string]interface{}{
-		"runner_id":         runnerName,
-		"runner_jit_config": jitConfig.GetEncodedJITConfig(),
-		"hostname":          runnerName,
-		"shutdown_on_exit":  *b.config.ShutdownOnExit,
-	}
-
+	metadata := runnerMetadata(b.config, runnerName, jitConfig.GetEncodedJITConfig())
 	fcMachine.Handlers.FcInit = fcMachine.Handlers.FcInit.Append(firecracker.NewSetMetadataHandler(metadata))
 
 	vmmCtx, vmmCancel := context.WithCancel(ctx)
@@ -228,6 +221,32 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 	go b.cleanupOnExit(ctx, machine)
 
 	return machine, nil
+}
+
+// runnerMetadata builds the MMDS document for a VM. The agent reads the
+// "fireactions" key; the pool's firecracker.metadata is copied alongside it.
+func runnerMetadata(config *PoolConfig, runnerName, encodedJITConfig string) map[string]interface{} {
+	fireactions := map[string]interface{}{
+		"runner_id":         runnerName,
+		"runner_jit_config": encodedJITConfig,
+		"hostname":          runnerName,
+		"shutdown_on_exit":  *config.ShutdownOnExit,
+	}
+	if len(config.Env) > 0 {
+		env := make(map[string]interface{}, len(config.Env))
+		for k, v := range config.Env {
+			env[k] = v
+		}
+		fireactions["env"] = env
+	}
+
+	metaData := deepcopy.Map(config.Firecracker.Metadata)
+	if metaData == nil {
+		metaData = map[string]interface{}{}
+	}
+	metaData["fireactions"] = fireactions
+
+	return map[string]interface{}{"latest": map[string]interface{}{"meta-data": metaData}}
 }
 
 // cleanupOnExit waits for the VM to exit, releases its resources and closes

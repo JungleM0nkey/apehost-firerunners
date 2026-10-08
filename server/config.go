@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/hostinger/fireactions/helper/envvar"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,15 +39,15 @@ type GitHubConfig struct {
 }
 
 type RunnerConfig struct {
-	Name            string   `yaml:"name" validate:"required"`
-	ImagePullPolicy string   `yaml:"image_pull_policy" validate:"required,oneof=Always Never IfNotPresent"`
-	Image           string   `yaml:"image" validate:"required"`
-	Organization    string   `yaml:"organization" validate:"required"`
+	Name            string `yaml:"name" validate:"required"`
+	ImagePullPolicy string `yaml:"image_pull_policy" validate:"required,oneof=Always Never IfNotPresent"`
+	Image           string `yaml:"image" validate:"required"`
+	Organization    string `yaml:"organization" validate:"required"`
 	// Repository, when set, registers repo-level runners for Organization/Repository
 	// instead of org-level ones (needed for personal accounts).
-	Repository string `yaml:"repository"`
-	GroupID         int64    `yaml:"group_id" validate:"required"`
-	Labels          []string `yaml:"labels" validate:"required"`
+	Repository string   `yaml:"repository"`
+	GroupID    int64    `yaml:"group_id" validate:"required"`
+	Labels     []string `yaml:"labels" validate:"required"`
 }
 
 type FirecrackerConfig struct {
@@ -112,5 +113,15 @@ func (c *Config) Load() error {
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
-	return validator.New().Struct(c)
+	if err := validator.New().Struct(c); err != nil {
+		return err
+	}
+
+	for _, pool := range c.Pools {
+		if err := envvar.Validate(pool.Env); err != nil {
+			return fmt.Errorf("pool %s: %w", pool.Name, err)
+		}
+	}
+
+	return nil
 }

@@ -8,6 +8,8 @@ type Config struct {
 	Hostname        string `validate:"required"`
 	LogLevel        string `validate:"required,oneof=debug info warn error fatal panic trace"`
 	ShutdownOnExit  bool   `validate:""`
+	// RunnerEnv is added to the runner process environment. Never logged.
+	RunnerEnv map[string]string `validate:""`
 }
 
 func (c Config) Validate() error {

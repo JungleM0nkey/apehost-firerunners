@@ -24,6 +24,14 @@ pools:
     organization: JungleM0nkey             # owner (user or org)
     repository: apehost-connect-dashboard  # set => repo-level runners (personal accounts)
     labels: [self-hosted, fireactions, fireactions-4vcpu-8gb]
+  # Optional: added to the runner env in every VM of this pool, so every job
+  # step sees them (#8). Values are never logged; this file is 0600.
+  # Names must not be PATH/HOME/USER/LOGNAME/UID/GID or start with
+  # GITHUB_/ACTIONS_/RUNNER_.
+  # env:
+  #   TURBO_API: http://10.200.0.1:8787
+  #   TURBO_TOKEN: <proxy token>
+  #   TURBO_CACHE: remote:rw
   firecracker:
     binary_path: /usr/local/bin/firecracker
     kernel_image_path: /var/lib/fireactions/kernels/6.18/vmlinux

@@ -50,6 +50,9 @@ type PoolConfig struct {
 	Replicas       int                `yaml:"replicas" validate:"min=0"`
 	Runner         *RunnerConfig      `yaml:"runner" validate:"required"`
 	Firecracker    *FirecrackerConfig `yaml:"firecracker" validate:"required"`
+	// Env is added to the runner process environment in every VM of the pool,
+	// so every job step sees it. Values may be secrets: they are never logged.
+	Env map[string]string `yaml:"env"`
 }
 
 // UnmarshalYAML implements custom unmarshaling to set defaults.
