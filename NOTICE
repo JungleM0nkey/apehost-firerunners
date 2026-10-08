@@ -1,0 +1,9 @@
+apehost-firerunners
+Copyright 2026 ApeHost
+
+This product is a modified version of Fireactions
+(https://github.com/hostinger/fireactions), Copyright Hostinger,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Modifications from upstream v2.0.8 are listed in README.md
+("Changes from upstream") and recorded in this repository's git history.

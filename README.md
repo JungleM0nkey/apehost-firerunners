@@ -1,3 +1,42 @@
+# apehost-firerunners
+
+ApeHost's fork of [Fireactions](https://github.com/hostinger/fireactions): ephemeral GitHub Actions runners in Firecracker microVMs, one fresh VM per job. It runs on **podbox** and serves our CI and deploys without GitHub-hosted minutes.
+
+Based on upstream **v2.0.8**. Licensed Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Changes from upstream
+
+- **Repo-level runners** (`runner.repository`): upstream registers org-level runners only, so personal accounts can't use it. When `repository` is set, `organization` is treated as the owner and the server uses `FindRepositoryInstallation` / `GenerateRepoJITConfig` / `RemoveRunner`.
+- Removed upstream's release workflows (release-please, goreleaser to `ghcr.io/hostinger`).
+
+## Deploying on podbox
+
+`deploy/podbox/` has everything except secrets:
+
+| File | Purpose |
+|---|---|
+| [`setup.sh`](deploy/podbox/setup.sh) | Firecracker, guest kernel, CNI, a dedicated containerd 1.7 and a RAM-backed (tmpfs) devmapper thin-pool, plus the `fireactions-thinpool`, `fireactions-containerd` and `fireactions` systemd units. Leaves Docker's containerd alone. |
+| [`config.example.yaml`](deploy/podbox/config.example.yaml) | `/etc/fireactions/config.yaml` minus the GitHub App key. |
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o fireactions ./cmd/fireactions
+scp fireactions deploy/podbox/setup.sh podbox:/tmp/
+ssh podbox 'sudo install -m755 /tmp/fireactions /usr/local/bin/ && sudo bash /tmp/setup.sh'
+# then write /etc/fireactions/config.yaml (0600) and: sudo systemctl enable --now fireactions
+```
+
+Workflows target the pool with `runs-on: [self-hosted, fireactions-4vcpu-8gb]`.
+
+### Gotchas we hit
+
+- **Don't run upstream `install.sh` on a Docker host.** It overwrites `/etc/containerd/config.toml` and the containerd unit, and runs `vgcreate` on a block device.
+- **No `noapic` in `kernel_args`.** Firecracker ≥1.8 describes virtio-mmio devices via ACPI, and `noapic` leaves them without IRQs, so the VM crash-loops.
+- **Guest kernel:** 5.10 and 6.1 are past Firecracker's end of support and the upstream-hosted kernels now 404. We use Firecracker's CI 6.18 build.
+- **Subnet:** upstream's `192.168.128.0/24` collides with Docker bridges; we use `10.200.0.0/24`. VMs get real resolvers from `/run/systemd/resolve/resolv.conf`, not the `127.0.0.53` stub.
+- **Runner image has no Node.** Add `actions/setup-node` to jobs that need it, otherwise Bun ends up running Node tooling.
+
+---
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/hostinger/fireactions)](https://goreportcard.com/report/github.com/hostinger/fireactions)
 
 ![Banner](docs/img/banner_violet.png)
