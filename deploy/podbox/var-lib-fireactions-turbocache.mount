@@ -1,0 +1,18 @@
+# RAM-backed storage for fireactions-cache-proxy: artifact bytes and the Durable Object index
+# live on the same tmpfs, so a reboot always yields a consistent, empty (cold) cache.
+# Size it a little above SETTINGS.maxBytes in config.capnp (default 4 GiB) to leave room for the
+# SQLite index, in-flight writes and pending uploads that the LRU may not evict yet.
+[Unit]
+Description=tmpfs for the fireactions Turborepo cache proxy
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+
+[Mount]
+What=tmpfs-fireactions-turbocache
+Where=/var/lib/fireactions/turbocache
+Type=tmpfs
+Options=size=5G,mode=0700,nosuid,nodev,noexec
+
+[Install]
+WantedBy=local-fs.target

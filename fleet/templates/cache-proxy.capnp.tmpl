@@ -1,0 +1,45 @@
+# {{.Header}}
+# workerd config for the per-host Turborepo cache proxy. Installed as
+# /opt/fireactions/cache-proxy/config.capnp next to worker.js (cache-proxy `npm run build`).
+# Secrets come from the environment (cache-proxy.env), never from this file.
+
+using Workerd = import "/workerd/workerd.capnp";
+
+const config :Workerd.Config = (
+  services = [
+    (name = "cache-proxy", worker = .proxyWorker),
+    (name = "artifacts", disk = (path = "{{.Dir}}/artifacts", writable = true)),
+    (name = "do-storage", disk = (path = "{{.Dir}}/do", writable = true)),
+    (name = "upstream", network = (allow = ["public"], tlsOptions = (trustBrowserCas = true))),
+  ],
+
+  sockets = [
+    # VM bridge only: VMs use TURBO_API=http://{{.BridgeIP}}:{{.Port}}.
+    (name = "api", address = "{{.BridgeIP}}:{{.Port}}", http = (), service = "cache-proxy"),
+    # Loopback only, separate entrypoint: the bridge socket cannot reach /metrics.
+    (name = "metrics", address = "127.0.0.1:{{.MetricsPort}}", http = (),
+     service = (name = "cache-proxy", entrypoint = "Metrics")),
+  ],
+);
+
+const proxyWorker :Workerd.Worker = (
+  modules = [(name = "worker.js", esModule = embed "worker.js")],
+  compatibilityDate = "2026-10-01",
+
+  bindings = [
+    (name = "DISK", service = "artifacts"),
+    (name = "UPSTREAM", service = "upstream"),
+    (name = "INDEX", durableObjectNamespace = "CacheIndex"),
+    (name = "SETTINGS", json = "{{.SettingsJSON}}"),
+    (name = "UPSTREAM_TOKEN", fromEnvironment = "UPSTREAM_TOKEN"),
+    (name = "TOKENS_RW", fromEnvironment = "TOKENS_RW"),
+    (name = "TOKENS_RO", fromEnvironment = "TOKENS_RO"),
+  ],
+
+  durableObjectNamespaces = [
+    (className = "CacheIndex", uniqueKey = "fireactions-cache-proxy-index", enableSql = true),
+  ],
+  durableObjectStorage = (localDisk = "do-storage"),
+
+  globalOutbound = "upstream",
+);

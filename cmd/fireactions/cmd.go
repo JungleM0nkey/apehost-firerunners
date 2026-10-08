@@ -46,6 +46,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newServerCmd())
 	cmd.AddCommand(newAgentCmd())
 	cmd.AddCommand(newValidateCmd())
+	cmd.AddCommand(newFleetCmd())
 
 	cmd.AddGroup(&cobra.Group{ID: "pool", Title: "Pool management commands:"})
 	cmd.AddCommand(newPoolsCmd())

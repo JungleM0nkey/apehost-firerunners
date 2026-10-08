@@ -1,0 +1,22 @@
+{
+  "name": "fireactions-cache-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-host Turborepo remote-cache read-through proxy running on self-hosted workerd",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2024 --platform=neutral --external:cloudflare:* --outfile=dist/worker.js",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.3.7",
+    "@cloudflare/workers-types": "5.20261008.1",
+    "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "workerd": "1.20261008.1"
+  }
+}

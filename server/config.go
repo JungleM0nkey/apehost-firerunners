@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/hostinger/fireactions/helper/envvar"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,20 +34,23 @@ type MetricsConfig struct {
 }
 
 type GitHubConfig struct {
-	AppPrivateKey string `yaml:"app_private_key" validate:"required"`
-	AppID         int64  `yaml:"app_id" validate:"required"`
+	AppPrivateKey string `yaml:"app_private_key" validate:"required_without=AppPrivateKeyFile"`
+	// AppPrivateKeyFile is read at startup when AppPrivateKey is empty, so the
+	// config file itself can hold no secrets.
+	AppPrivateKeyFile string `yaml:"app_private_key_file"`
+	AppID             int64  `yaml:"app_id" validate:"required"`
 }
 
 type RunnerConfig struct {
-	Name            string   `yaml:"name" validate:"required"`
-	ImagePullPolicy string   `yaml:"image_pull_policy" validate:"required,oneof=Always Never IfNotPresent"`
-	Image           string   `yaml:"image" validate:"required"`
-	Organization    string   `yaml:"organization" validate:"required"`
+	Name            string `yaml:"name" validate:"required"`
+	ImagePullPolicy string `yaml:"image_pull_policy" validate:"required,oneof=Always Never IfNotPresent"`
+	Image           string `yaml:"image" validate:"required"`
+	Organization    string `yaml:"organization" validate:"required"`
 	// Repository, when set, registers repo-level runners for Organization/Repository
 	// instead of org-level ones (needed for personal accounts).
-	Repository string `yaml:"repository"`
-	GroupID         int64    `yaml:"group_id" validate:"required"`
-	Labels          []string `yaml:"labels" validate:"required"`
+	Repository string   `yaml:"repository"`
+	GroupID    int64    `yaml:"group_id" validate:"required"`
+	Labels     []string `yaml:"labels" validate:"required"`
 }
 
 type FirecrackerConfig struct {
@@ -107,10 +111,45 @@ func (c *Config) Load() error {
 		_ = file.Close()
 	}()
 
-	return yaml.NewDecoder(file).Decode(c)
+	if err := yaml.NewDecoder(file).Decode(c); err != nil {
+		return err
+	}
+
+	if c.GitHub != nil && c.GitHub.AppPrivateKey == "" && c.GitHub.AppPrivateKeyFile != "" {
+		key, err := os.ReadFile(c.GitHub.AppPrivateKeyFile)
+		if err != nil {
+			return fmt.Errorf("github app_private_key_file: %w", err)
+		}
+		c.GitHub.AppPrivateKey = string(key)
+	}
+
+	return nil
 }
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
-	return validator.New().Struct(c)
+	if err := validator.New().Struct(c); err != nil {
+		return err
+	}
+
+	for _, pool := range c.Pools {
+		if err := envvar.Validate(pool.Env); err != nil {
+			return fmt.Errorf("pool %s: %w", pool.Name, err)
+		}
+
+		if pool.Min != nil && pool.Max != nil && *pool.Min > *pool.Max {
+			return fmt.Errorf("pool %s: min (%d) is greater than max (%d)", pool.Name, *pool.Min, *pool.Max)
+		}
+
+		if pool.ScaleSet != nil {
+			if pool.Max == nil {
+				return fmt.Errorf("pool %s: scale_set requires max (the capacity advertised to GitHub)", pool.Name)
+			}
+			if pool.Replicas != 0 {
+				return fmt.Errorf("pool %s: replicas and scale_set are mutually exclusive; use min for warm VMs", pool.Name)
+			}
+		}
+	}
+
+	return nil
 }

@@ -14,6 +14,7 @@ import (
 )
 
 // Machine holds metadata about a Firecracker machine and its associated resources.
+// It is the Firecracker implementation of VM.
 type Machine struct {
 	*firecracker.Machine
 
@@ -27,7 +28,15 @@ type Machine struct {
 	leaseCancel func(context.Context) error // containerd lease cancel function
 	vmmCtx      context.Context
 	vmmCancel   context.CancelFunc
+	done        chan struct{}
+
+	// deregister removes the runner from GitHub. GitHub refuses while the
+	// runner is running a job, which makes it the final busy check before a
+	// scale-down stop. It is idempotent.
+	deregister func(ctx context.Context) error
 }
+
+var _ VM = (*Machine)(nil)
 
 func (m *Machine) ConnectToGuestAgent(ctx context.Context) (*grpc.ClientConn, agentv1.AgentServiceClient, error) {
 	dialer := func(ctx context.Context, addr string) (net.Conn, error) {
@@ -51,9 +60,80 @@ func (m *Machine) ConnectToGuestAgent(ctx context.Context) (*grpc.ClientConn, ag
 
 func (m *Machine) GetAddr() string {
 	addr := ""
-	if len(m.Cfg.NetworkInterfaces) > 0 {
+	if len(m.Cfg.NetworkInterfaces) > 0 && m.Cfg.NetworkInterfaces[0].StaticConfiguration != nil &&
+		m.Cfg.NetworkInterfaces[0].StaticConfiguration.IPConfiguration != nil {
 		addr = m.Cfg.NetworkInterfaces[0].StaticConfiguration.IPConfiguration.IPAddr.IP.String()
 	}
 
 	return addr
+}
+
+// Info implements VM.
+func (m *Machine) Info() VMInfo {
+	return VMInfo{Name: m.Name, Pool: m.Pool, Addr: m.GetAddr(), CreatedAt: m.CreatedAt}
+}
+
+// RunnerState implements VM.
+func (m *Machine) RunnerState(ctx context.Context) (string, error) {
+	conn, client, err := m.ConnectToGuestAgent(ctx)
+	if err != nil {
+		return RunnerStateUnknown, err
+	}
+	defer conn.Close()
+
+	resp, err := client.GetRunnerState(ctx, &agentv1.GetRunnerStateRequest{})
+	if err != nil {
+		return RunnerStateUnknown, err
+	}
+
+	return resp.GetState(), nil
+}
+
+// RunnerVersion implements VM.
+func (m *Machine) RunnerVersion(ctx context.Context) (string, error) {
+	conn, client, err := m.ConnectToGuestAgent(ctx)
+	if err != nil {
+		return "Unknown", err
+	}
+	defer conn.Close()
+
+	resp, err := client.GetRunnerVersion(ctx, &agentv1.GetRunnerVersionRequest{})
+	if err != nil {
+		return "Unknown", err
+	}
+
+	return resp.GetVersion(), nil
+}
+
+// Stop implements VM. It stops the VM only if the agent reports the runner as
+// idle and GitHub agrees to remove the runner (once removed, the runner can't
+// be assigned a job, so stopping it can't kill one), or if the runner process
+// has already exited.
+func (m *Machine) Stop(ctx context.Context) error {
+	state, err := m.RunnerState(ctx)
+	if err == nil && runnerGone(state) {
+		// The runner process is gone (shutdown_on_exit: false), so no job can
+		// run. GitHub has usually removed the ephemeral runner already.
+		_ = m.deregister(ctx)
+		return m.StopVMM()
+	}
+	if err != nil || state != RunnerStateIdle {
+		return fmt.Errorf("%w: runner state %s", ErrRunnerBusy, state)
+	}
+
+	if err := m.deregister(ctx); err != nil {
+		return fmt.Errorf("%w: removing runner from GitHub: %w", ErrRunnerBusy, err)
+	}
+
+	return m.StopVMM()
+}
+
+// Kill implements VM.
+func (m *Machine) Kill() error {
+	return m.StopVMM()
+}
+
+// Done implements VM.
+func (m *Machine) Done() <-chan struct{} {
+	return m.done
 }

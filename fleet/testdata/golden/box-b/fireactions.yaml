@@ -1,0 +1,48 @@
+# Rendered by `fireactions fleet render` from fleet.yaml. Do not edit; edit fleet.yaml and re-render.
+# Contains secrets (pool env tokens): keep it 0600, never commit it.
+bind_address: 127.0.0.1:18080
+metrics:
+  enabled: true
+  address: 127.0.0.1:18081
+containerd:
+  address: /run/fireactions-containerd/containerd.sock
+  namespace: fireactions
+github:
+  app_id: 5235650
+  app_private_key_file: /etc/fireactions/app.pem
+pools:
+  - name: fireactions-4vcpu-8gb
+    min: 1
+    max: 4
+    scale_set:
+      name: fireactions-4vcpu-8gb-box-b
+      labels:
+        - self-hosted
+        - fireactions
+        - fireactions-4vcpu-8gb
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      SENTRY_AUTH_TOKEN: test-sentry-token
+      TURBO_API: http://10.201.0.1:8787
+      TURBO_CACHE: remote:r
+      TURBO_TEAM: apehost
+      TURBO_TOKEN: test-ro-token
+    runner:
+      name: fa-dashboard
+      image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-2.338.0
+      image_pull_policy: IfNotPresent
+      group_id: 1
+      organization: JungleM0nkey
+      repository: apehost-connect-dashboard
+      labels:
+        - self-hosted
+        - fireactions
+        - fireactions-4vcpu-8gb
+    firecracker:
+      binary_path: /usr/local/bin/firecracker
+      kernel_image_path: /var/lib/fireactions/kernels/6.18/vmlinux
+      kernel_args: console=ttyS0 reboot=k panic=1 pci=off nomodules rw
+      machine_config:
+        vcpu_count: 4
+        mem_size_mib: 8192
+log_level: info

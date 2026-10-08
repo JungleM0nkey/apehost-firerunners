@@ -6,7 +6,7 @@ Pool is a group of GitHub runners that share the same labels and Firecracker vir
 
 There can be multiple pools configured, each with different configurations. For example, you can have a pool with runners that have 2 vCPUs and 2 GB of RAM, and another pool with runners that have 4 vCPUs and 4 GB of RAM, each with different labels.
 
-Pools can be paused via CLI, which prevents it from scaling up. This can be useful when you want to prevent new runners from being created, but you don't want to delete the existing runners.
+Pools can be paused via CLI, which drains them: no new VMs are created, idle VMs are stopped, and VMs running a job finish it and exit. Use it before host maintenance. Scale-down never stops a VM whose runner is busy.
 
 Pools are configured in the `pools` section of the configuration file, e.g.:
 

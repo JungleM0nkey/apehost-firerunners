@@ -55,7 +55,9 @@ func (s *Server) ScalePool(ctx context.Context, req *serverv1.ScalePoolRequest) 
 
 	// Update the pool config with the new replicas value
 	// The Run() loop will handle the actual scaling
-	pool.SetReplicas(int(req.Replicas))
+	if err := pool.SetReplicas(int(req.Replicas)); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
 
 	return &serverv1.ScalePoolResponse{Message: "Pool replicas updated successfully"}, nil
 }
@@ -88,7 +90,7 @@ func (s *Server) ResumePool(ctx context.Context, req *serverv1.ResumePoolRequest
 
 // ListMachines implements ServerService.ListMachines.
 func (s *Server) ListMachines(ctx context.Context, req *serverv1.ListMachinesRequest) (*serverv1.ListMachinesResponse, error) {
-	var machines []*Machine
+	var machines []VM
 
 	if req.Pool == "" {
 		// List all machines across all pools
@@ -124,15 +126,16 @@ func (s *Server) ListMachines(ctx context.Context, req *serverv1.ListMachinesReq
 	}
 
 	if machines == nil {
-		machines = []*Machine{}
+		machines = []VM{}
 	}
 
 	sort.Slice(machines, func(i, j int) bool {
-		if machines[i].Pool != machines[j].Pool {
-			return machines[i].Pool < machines[j].Pool
+		a, b := machines[i].Info(), machines[j].Info()
+		if a.Pool != b.Pool {
+			return a.Pool < b.Pool
 		}
 
-		return machines[i].Name < machines[j].Name
+		return a.Name < b.Name
 	})
 
 	// Convert machines to proto in parallel for better performance
@@ -144,7 +147,7 @@ func (s *Server) ListMachines(ctx context.Context, req *serverv1.ListMachinesReq
 	results := make(chan result, len(machines))
 
 	for i, machine := range machines {
-		go func(idx int, m *Machine) {
+		go func(idx int, m VM) {
 			results <- result{index: idx, proto: convertMachineToProto(ctx, m)}
 		}(i, machine)
 	}

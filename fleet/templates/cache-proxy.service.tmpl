@@ -1,0 +1,32 @@
+# {{.Header}}
+[Unit]
+Description=fireactions Turborepo remote-cache proxy (workerd)
+Requires={{.MountUnit}}
+After={{.MountUnit}} network-online.target fireactions.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/fireactions/cache-proxy.env
+ExecStartPre=/usr/bin/install -d -m 0700 {{.Dir}}/artifacts {{.Dir}}/do
+# The API socket binds the bridge gateway, which exists once CNI created fireactions-br0.
+ExecStartPre=/bin/sh -c 'for i in $$(seq 120); do ip -4 -o addr show dev fireactions-br0 2>/dev/null | grep -qF " {{.BridgeIP}}/" && exit 0; sleep 1; done; echo "{{.BridgeIP}} is not on fireactions-br0" >&2; exit 1'
+ExecStart=/opt/fireactions/bin/workerd serve /opt/fireactions/cache-proxy/config.capnp
+TimeoutStartSec=150
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths={{.Dir}}
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

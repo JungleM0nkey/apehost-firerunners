@@ -1,0 +1,16 @@
+# Copy to .github/workflows/fanout.yml in the throwaway PRIVATE spike repo.
+# Run it from the Actions tab (workflow_dispatch): 4 parallel 2-minute jobs.
+name: fanout
+on: workflow_dispatch
+jobs:
+  fan:
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4]
+    runs-on: [fireactions-spike]
+    steps:
+      - run: |
+          echo "job ${{ matrix.n }} on $RUNNER_NAME ($(hostname))"
+          env | sort | grep -E '^SPIKE_' || echo "no SPIKE_ env (per-pool env, #8)"
+          sleep 120

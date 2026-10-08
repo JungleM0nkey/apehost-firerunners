@@ -1,0 +1,49 @@
+# Test fixture: two hosts, PR pool (read-only cache, scale set) and a trusted
+# pool (read-write cache, fixed replicas) that only runs on podbox.
+github:
+  app_id: 5235650
+
+defaults:
+  log_level: info
+  cache:
+    team: apehost
+    max_size: 4GiB
+
+pools:
+  - name: fireactions-4vcpu-8gb
+    runner_name: fa-dashboard
+    repository: JungleM0nkey/apehost-connect-dashboard
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb]
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-2.338.0
+    vcpu: 4
+    memory: 8GiB
+    scale_set: true
+    min: 1
+    max: 2
+    cache: ro
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      SENTRY_AUTH_TOKEN: $FLEET_TEST_SENTRY_TOKEN
+  - name: fireactions-4vcpu-8gb-trusted
+    runner_name: fa-dashboard-trusted
+    repository: JungleM0nkey/apehost-connect-dashboard
+    labels: [self-hosted, fireactions-4vcpu-8gb-trusted]
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-2.338.0
+    vcpu: 4
+    memory: 8GiB
+    replicas: 1
+    cache: rw
+
+hosts:
+  podbox:
+    cache:
+      max_size: 8GiB
+  box-b:
+    bridge_ip: 10.201.0.1
+    cache:
+      dir: /mnt/ramdisk/turbocache
+    pools:
+      fireactions-4vcpu-8gb:
+        max: 4
+      fireactions-4vcpu-8gb-trusted:
+        disabled: true

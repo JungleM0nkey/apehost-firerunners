@@ -1,0 +1,34 @@
+# Per-host Turborepo remote-cache proxy (workerd). See deploy/podbox/cache-proxy.md.
+[Unit]
+Description=fireactions Turborepo remote-cache proxy (workerd)
+Requires=var-lib-fireactions-turbocache.mount
+After=var-lib-fireactions-turbocache.mount network-online.target fireactions.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# UPSTREAM_TOKEN, TOKENS_RW, TOKENS_RO (root:root 0600). Read by workerd's fromEnvironment bindings.
+EnvironmentFile=/etc/fireactions/cache-proxy.env
+ExecStartPre=/usr/bin/install -d -m 0700 /var/lib/fireactions/turbocache/artifacts /var/lib/fireactions/turbocache/do
+# The API socket binds the bridge gateway 10.200.0.1, which only exists once fireactions has
+# started a VM and CNI has created fireactions-br0. Wait for it instead of failing the bind.
+ExecStartPre=/bin/sh -c 'for i in $$(seq 120); do ip -4 -o addr show dev fireactions-br0 2>/dev/null | grep -qF " 10.200.0.1/" && exit 0; sleep 1; done; echo "10.200.0.1 is not on fireactions-br0" >&2; exit 1'
+ExecStart=/opt/fireactions/bin/workerd serve /opt/fireactions/cache-proxy/config.capnp
+TimeoutStartSec=150
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fireactions/turbocache
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
