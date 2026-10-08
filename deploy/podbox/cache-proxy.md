@@ -114,17 +114,30 @@ The turbo client in a VM needs these variables:
 proxy replays `x-artifact-tag` byte-for-byte, so signatures still verify end to end. Leave
 `TURBO_PREFLIGHT` unset.
 
-fireactions cannot inject per-pool environment variables yet (see
-`docs/research/2026-10-08-multi-host-fleet.md` §3.2). Until it can, set the variables in the
-workflow, for example:
+Set them per pool with `env:` (#8), so workflows need no changes and never see a Cloudflare
+credential. A pool has one token, so PR jobs and trusted jobs need separate pools (labels):
 
 ```yaml
-env:
-  TURBO_API: http://10.200.0.1:8787
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-  TURBO_TOKEN: ${{ github.event_name == 'pull_request' && secrets.TURBO_PROXY_RO_TOKEN || secrets.TURBO_PROXY_RW_TOKEN }}
-  TURBO_CACHE: ${{ github.event_name == 'pull_request' && 'remote:r' || 'remote:rw' }}
+pools:
+- name: fireactions-4vcpu-8gb            # PR CI: read-only
+  env:
+    TURBO_API: http://10.200.0.1:8787
+    TURBO_TEAM: <team slug>
+    TURBO_TOKEN: <a TOKENS_RO token>
+    TURBO_CACHE: remote:r
+- name: fireactions-4vcpu-8gb-trusted    # deploy job (runs-on its own label): read-write
+  env:
+    TURBO_API: http://10.200.0.1:8787
+    TURBO_TEAM: <team slug>
+    TURBO_TOKEN: <a TOKENS_RW token>
+    TURBO_CACHE: remote:rw
 ```
+
+Remove the `TURBO_*` env/secrets from the deploy workflow once the trusted pool serves it.
+Caveat: anyone who can push a branch can point a PR job at the trusted label. In a private repo
+with trusted collaborators that's accepted; the environment-protected deploy job is the only
+intended user of that label. (Until the pools are split, the workflow-level `env:` with
+`github.event_name == 'pull_request'` switching between an RO and an RW secret works too.)
 
 `TURBO_CACHE=remote:r` alone does not protect anything, because job code controls its own
 environment. The `TOKENS_RO` scope is what stops PR jobs from writing: the proxy returns `403`
