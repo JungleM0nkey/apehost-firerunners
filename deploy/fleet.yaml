@@ -23,7 +23,7 @@ pools:
     runner_name: fa-dashboard
     repository: JungleM0nkey/apehost-connect-dashboard   # private; never a public repo
     labels: [self-hosted, fireactions, fireactions-4vcpu-8gb]
-    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-runner2.338.0-node24.21.0-149461c
     vcpu: 4
     memory: 8GiB
     replicas: 2
