@@ -270,7 +270,10 @@ func (p *Pool) scaleDown(count int) {
 		}
 
 		start := time.Now()
-		err := vm.Stop(p.ctx)
+		// Stop asks the agent and GitHub first; don't let a slow call stall reconcile.
+		stopCtx, cancel := context.WithTimeout(p.ctx, 30*time.Second)
+		err := vm.Stop(stopCtx)
+		cancel()
 		if err != nil {
 			p.markStopping(name, false)
 
