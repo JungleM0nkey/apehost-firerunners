@@ -48,13 +48,24 @@ deploy/fleet-apply.sh podbox rendered/podbox                                # dr
 
 `fleet-apply.sh` restarts only units whose files changed, and drains every pool (waits for running jobs) before restarting fireactions. Adding a host is a `hosts:` entry plus `setup.sh` on the new machine.
 
+### Runner image and rebuild policy
+
+VMs boot [`images/ubuntu24.04`](images/ubuntu24.04/Dockerfile), published as `ghcr.io/junglem0nkey/fireactions-runner`: upstream's ubuntu24.04 image plus **our agent** (needed for per-pool `env`), the **latest `actions/runner`** and **Node 24**.
+
+**Policy: every host runs an image built within 30 days of the latest `actions/runner` release.** GitHub stops sending jobs to runners more than 30 days out of date, and JIT runners can't opt out of updating, so a stale image re-downloads the runner on every VM boot and eventually gets no jobs at all. ([Scale-set](#fleet-config-rendered) runners register with `DisableUpdate`, so for them the image is the only way to update.)
+
+- [`runner-image.yaml`](.github/workflows/runner-image.yaml) runs every Monday and on agent or image changes. When the runner, Node or agent changed, it pushes an immutable tag `ubuntu24.04-runner<ver>-node<ver>-<sha>` and opens a PR bumping `deploy/fleet.yaml`.
+- Merge that PR and run `fleet-apply.sh` within the week. Pools pull `IfNotPresent`, so only a new tag reaches hosts.
+- One-time setup: make the GHCR package public (Package settings → Change visibility), so hosts can pull it without credentials. Also enable *Settings → Actions → General → Allow GitHub Actions to create pull requests*.
+- GitHub disables scheduled workflows after 60 days without repository activity. If the bump PRs stop, check the Actions tab.
+
 ### Gotchas we hit
 
 - **Don't run upstream `install.sh` on a Docker host.** It overwrites `/etc/containerd/config.toml` and the containerd unit, and runs `vgcreate` on a block device.
 - **No `noapic` in `kernel_args`.** Firecracker ≥1.8 describes virtio-mmio devices via ACPI, and `noapic` leaves them without IRQs, so the VM crash-loops.
 - **Guest kernel:** 5.10 and 6.1 are past Firecracker's end of support and the upstream-hosted kernels now 404. We use Firecracker's CI 6.18 build.
 - **Subnet:** upstream's `192.168.128.0/24` collides with Docker bridges; we use `10.200.0.0/24`. VMs get real resolvers from `/run/systemd/resolve/resolv.conf`, not the `127.0.0.53` stub.
-- **Runner image has no Node.** Add `actions/setup-node` to jobs that need it, otherwise Bun ends up running Node tooling.
+- **Upstream's runner image has no Node.** Ours does (see above). On the upstream image, add `actions/setup-node` to jobs that need it, otherwise Bun ends up running Node tooling.
 
 ---
 

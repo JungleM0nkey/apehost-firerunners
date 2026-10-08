@@ -1,0 +1,123 @@
+---
+# Runner VM image (#9). Weekly, it picks up the latest actions/runner release and
+# Node 24, builds images/ubuntu24.04 with this repo's agent, pushes an immutable
+# tag and opens a PR bumping deploy/fleet.yaml. Merging that PR and applying it
+# keeps hosts within 30 days of every runner release (see README).
+name: runner-image
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'          # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if the tag already exists
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - images/**
+      - agent/**
+      - cmd/fireactions/agent.go
+      - helper/**
+      - proto/agent/**
+      - go.mod
+      - go.sum
+      - .github/workflows/runner-image.yaml
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: runner-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/junglem0nkey/fireactions-runner
+  NODE_MAJOR: '24'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve versions
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runner=$(gh api repos/actions/runner/releases/latest --jq '.tag_name | ltrimstr("v")')
+          asset="actions-runner-linux-x64-${runner}.tar.gz"
+          sha=$(gh api repos/actions/runner/releases/latest --jq ".assets[] | select(.name == \"${asset}\") | .digest // \"\"" | sed 's/^sha256://')
+          if [ -z "$sha" ]; then
+            curl -fsSLo /tmp/runner.tgz "https://github.com/actions/runner/releases/download/v${runner}/${asset}"
+            sha=$(sha256sum /tmp/runner.tgz | cut -d' ' -f1)
+          fi
+          node=$(curl -fsSL https://nodejs.org/dist/index.json | jq -r --arg m "v${NODE_MAJOR}." '[.[] | select(.version | startswith($m))][0].version | ltrimstr("v")')
+          tag="ubuntu24.04-runner${runner}-node${node}-${GITHUB_SHA::7}"
+          {
+            echo "runner=$runner"; echo "runner_sha=$sha"; echo "node=$node"; echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+          echo "runner $runner ($sha), node $node -> $IMAGE:$tag"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Skip if this exact image exists
+        id: exists
+        run: |
+          if [ "${{ inputs.force }}" != "true" ] && docker manifest inspect "$IMAGE:${{ steps.v.outputs.tag }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$IMAGE:${{ steps.v.outputs.tag }} already exists"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.exists.outputs.skip != 'true'
+
+      - uses: docker/build-push-action@v6
+        if: steps.exists.outputs.skip != 'true'
+        with:
+          context: .
+          file: images/ubuntu24.04/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            RUNNER_VERSION=${{ steps.v.outputs.runner }}
+            RUNNER_SHA256=${{ steps.v.outputs.runner_sha }}
+            NODE_VERSION=${{ steps.v.outputs.node }}
+            VERSION=${{ steps.v.outputs.tag }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.v.outputs.tag }}
+            ${{ env.IMAGE }}:ubuntu24.04
+          labels: |
+            org.opencontainers.image.version=${{ steps.v.outputs.tag }}
+            io.github.actions.runner.version=${{ steps.v.outputs.runner }}
+            org.nodejs.version=${{ steps.v.outputs.node }}
+
+      - name: Bump deploy/fleet.yaml
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          sed -i -E "s#(image: ${IMAGE}):[^ ]+#\1:${{ steps.v.outputs.tag }}#" deploy/fleet.yaml
+          git diff --stat
+
+      - uses: peter-evans/create-pull-request@v7
+        if: steps.exists.outputs.skip != 'true'
+        with:
+          branch: bump-runner-image
+          title: 'chore: runner image ${{ steps.v.outputs.tag }}'
+          commit-message: 'chore: runner image ${{ steps.v.outputs.tag }}'
+          body: |
+            New runner image `${{ env.IMAGE }}:${{ steps.v.outputs.tag }}`:
+            actions/runner ${{ steps.v.outputs.runner }}, Node ${{ steps.v.outputs.node }}, agent from ${{ github.sha }}.
+
+            Merge, then render and apply (`deploy/fleet-apply.sh`) within 30 days of the runner release.
+          add-paths: deploy/fleet.yaml
