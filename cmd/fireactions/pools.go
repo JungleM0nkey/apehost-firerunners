@@ -94,7 +94,7 @@ func runPoolsScaleCmd(cmd *cobra.Command, args []string) error {
 func newPoolsPauseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pause NAME",
-		Short: "Pause a pool, preventing it from scaling up",
+		Short: "Drain a pool: create no VMs, stop idle ones, let busy ones finish",
 		RunE:  runPoolsPauseCmd,
 		Args:  cobra.ExactArgs(1),
 	}
