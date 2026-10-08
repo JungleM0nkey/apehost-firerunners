@@ -1,0 +1,46 @@
+---
+name: cache-proxy
+
+on:
+  pull_request:
+    paths:
+    - cache-proxy/**
+    - .github/workflows/cache-proxy.yaml
+  push:
+    branches:
+    - main
+    paths:
+    - cache-proxy/**
+    - .github/workflows/cache-proxy.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cache-proxy
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: cache-proxy/package-lock.json
+
+    - name: Install
+      run: npm ci
+
+    - name: Typecheck
+      run: npm run typecheck
+
+    - name: Test
+      run: npm test
+
+    - name: Smoke test (real workerd)
+      run: npm run smoke
