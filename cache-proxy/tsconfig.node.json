@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["es2024", "dom"],
-    "types": ["node"]
+    "types": ["node"],
+    "allowImportingTsExtensions": true
   },
   "include": ["vitest.config.ts", "test/node/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mjs"]
 }
