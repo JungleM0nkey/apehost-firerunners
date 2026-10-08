@@ -106,10 +106,17 @@ func (m *Machine) RunnerVersion(ctx context.Context) (string, error) {
 }
 
 // Stop implements VM. It stops the VM only if the agent reports the runner as
-// idle and GitHub agrees to remove the runner; once removed, the runner can't
-// be assigned a job, so stopping it can't kill one.
+// idle and GitHub agrees to remove the runner (once removed, the runner can't
+// be assigned a job, so stopping it can't kill one), or if the runner process
+// has already exited.
 func (m *Machine) Stop(ctx context.Context) error {
 	state, err := m.RunnerState(ctx)
+	if err == nil && runnerGone(state) {
+		// The runner process is gone (shutdown_on_exit: false), so no job can
+		// run. GitHub has usually removed the ephemeral runner already.
+		_ = m.deregister(ctx)
+		return m.StopVMM()
+	}
 	if err != nil || state != RunnerStateIdle {
 		return fmt.Errorf("%w: runner state %s", ErrRunnerBusy, state)
 	}

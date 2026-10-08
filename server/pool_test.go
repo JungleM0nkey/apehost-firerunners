@@ -44,7 +44,7 @@ func (v *fakeVM) ConnectToGuestAgent(context.Context) (*grpc.ClientConn, agentv1
 func (v *fakeVM) Stop(context.Context) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.state != RunnerStateIdle {
+	if !stoppable(v.state) {
 		return ErrRunnerBusy
 	}
 	return v.stopLocked()
@@ -305,6 +305,24 @@ func TestPool_PauseDrains(t *testing.T) {
 	p.Resume()
 	settle(t, p, b)
 	assert.Len(t, b.running(), 3)
+}
+
+func TestPool_DrainStopsVMsWhoseRunnerExited(t *testing.T) {
+	b := &fakeBackend{state: RunnerStateRunning}
+	p := newTestPool(t, b, newFixedDemand(2))
+	settle(t, p, b)
+
+	p.Pause()
+	settle(t, p, b)
+	assert.Empty(t, b.stopped(), "busy VMs keep running while draining")
+
+	// With shutdown_on_exit: false the job finishes but the VM stays up.
+	vms := b.vms()
+	vms[0].setState(RunnerStateExited)
+	vms[1].setState(RunnerStateError)
+	settle(t, p, b)
+
+	assert.Empty(t, b.running(), "the drain completes")
 }
 
 func TestPool_PauseResumeRaceFree(t *testing.T) {

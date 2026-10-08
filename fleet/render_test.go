@@ -84,6 +84,29 @@ func TestRender_SecretFilesAre0600(t *testing.T) {
 	}
 }
 
+func TestWriteHost_RemovesFilesNoLongerRendered(t *testing.T) {
+	hosts, err := Render(loadFixture(t), getenv(testEnv))
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, WriteHost(dir, hosts["podbox"]))
+
+	// Re-render with the cache off: only fireactions.yaml remains.
+	f := loadFixture(t)
+	off := false
+	f.Defaults.Cache.Enabled = &off
+	for i := range f.Pools {
+		f.Pools[i].Cache = "off"
+	}
+	hosts, err = Render(f, getenv(testEnv))
+	require.NoError(t, err)
+	require.NoError(t, WriteHost(dir, hosts["podbox"]))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, FileFireactions, entries[0].Name())
+}
+
 func TestRender_SecretsOnlyInSecretFiles(t *testing.T) {
 	hosts, err := Render(loadFixture(t), getenv(testEnv))
 	require.NoError(t, err)

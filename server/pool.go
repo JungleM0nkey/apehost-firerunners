@@ -299,7 +299,7 @@ func (p *Pool) scaleDown(count int) {
 }
 
 // idleVMs asks every VM in the pool for its runner state and returns those
-// whose runner is idle, sorted by name.
+// whose runner is idle or has already exited, sorted by name.
 func (p *Pool) idleVMs() []VM {
 	p.vmsMu.Lock()
 	candidates := make([]VM, 0, len(p.vms))
@@ -333,7 +333,7 @@ func (p *Pool) idleVMs() []VM {
 			p.logger.Debug().Msgf("VM %s has a job according to GitHub, not a scale-down candidate", vm.Info().Name)
 			continue
 		}
-		if states[i] == RunnerStateIdle {
+		if stoppable(states[i]) {
 			idle = append(idle, vm)
 		} else {
 			p.logger.Debug().Msgf("VM %s is not idle (runner state %s), not a scale-down candidate", vm.Info().Name, states[i])

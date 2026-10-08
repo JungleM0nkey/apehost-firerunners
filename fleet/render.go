@@ -346,11 +346,30 @@ func systemdEscapePath(p string) string {
 	return b.String()
 }
 
-// WriteHost writes one host's rendered files into dir with their modes.
+// WriteHost writes one host's rendered files into dir with their modes. dir
+// belongs to the renderer: files from an earlier render that this one no
+// longer produces are removed, so fleet-apply.sh never installs stale config.
 func WriteHost(dir string, files []RenderedFile) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+
+	keep := make(map[string]bool, len(files))
+	for _, f := range files {
+		keep[f.Name] = true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !e.IsDir() && !keep[e.Name()] {
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+	}
+
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	for _, f := range files {
 		path := filepath.Join(dir, f.Name)

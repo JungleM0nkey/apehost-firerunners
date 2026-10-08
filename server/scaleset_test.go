@@ -181,7 +181,7 @@ func TestScaleSet_JobStartedPreventsScaleDown(t *testing.T) {
 func TestScaleSet_ListenerRecoversWithoutRestart(t *testing.T) {
 	healthy := &fakeSession{messages: []*scaleset.RunnerScaleSetMessage{statsMessage(2, 4)}}
 	conn := &fakeScaleSetConn{sessions: []*fakeSession{
-		nil, // GitHub unreachable on the first attempt
+		nil,                           // GitHub unreachable on the first attempt
 		{initial: 1, failAfter: true}, // session drops after the initial stats
 		healthy,
 	}}
@@ -228,7 +228,7 @@ func TestConfig_ScaleSetValidation(t *testing.T) {
 		c.GitHub = &GitHubConfig{AppID: 1, AppPrivateKey: "k"}
 		c.Pools = []*PoolConfig{{
 			Name: "p", Max: intPtr(4), ScaleSet: &ScaleSetConfig{},
-			Runner: &RunnerConfig{Name: "r", ImagePullPolicy: "Never", Image: "i", Organization: "o", GroupID: 1, Labels: []string{"l"}},
+			Runner:      &RunnerConfig{Name: "r", ImagePullPolicy: "Never", Image: "i", Organization: "o", GroupID: 1, Labels: []string{"l"}},
 			Firecracker: &FirecrackerConfig{},
 		}}
 		return c

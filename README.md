@@ -55,7 +55,7 @@ VMs boot [`images/ubuntu24.04`](images/ubuntu24.04/Dockerfile), published as `gh
 **Policy: every host runs an image built within 30 days of the latest `actions/runner` release.** GitHub stops sending jobs to runners more than 30 days out of date, and JIT runners can't opt out of updating, so a stale image re-downloads the runner on every VM boot and eventually gets no jobs at all. ([Scale-set](#fleet-config-rendered) runners register with `DisableUpdate`, so for them the image is the only way to update.)
 
 - [`runner-image.yaml`](.github/workflows/runner-image.yaml) runs every Monday and on agent or image changes. When the runner, Node or agent changed, it pushes an immutable tag `ubuntu24.04-runner<ver>-node<ver>-<sha>` and opens a PR bumping `deploy/fleet.yaml`.
-- Merge that PR and run `fleet-apply.sh` within the week. Pools pull `IfNotPresent`, so only a new tag reaches hosts.
+- Merge that PR and run `fleet-apply.sh` within the week. Pools pull `IfNotPresent`, so only a new tag reaches hosts. The first bump PR also switches pools from upstream's image to ours: make the package public before merging it.
 - One-time setup: make the GHCR package public (Package settings → Change visibility), so hosts can pull it without credentials. Also enable *Settings → Actions → General → Allow GitHub Actions to create pull requests*.
 - GitHub disables scheduled workflows after 60 days without repository activity. If the bump PRs stop, check the Actions tab.
 

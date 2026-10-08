@@ -106,7 +106,8 @@ jobs:
       - name: Bump deploy/fleet.yaml
         if: steps.exists.outputs.skip != 'true'
         run: |
-          sed -i -E "s#(image: ${IMAGE}):[^ ]+#\1:${{ steps.v.outputs.tag }}#" deploy/fleet.yaml
+          # Also matches upstream's image, so the first bump PR switches pools to ours.
+          sed -i -E "s#image: (${IMAGE}|ghcr\.io/hostinger/fireactions-images/ubuntu24\.04):[^ ]+#image: ${IMAGE}:${{ steps.v.outputs.tag }}#" deploy/fleet.yaml
           git diff --stat
 
       - uses: peter-evans/create-pull-request@v7

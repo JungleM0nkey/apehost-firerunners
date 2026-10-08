@@ -23,8 +23,21 @@ const (
 	RunnerStateIdle      = "Idle"
 	RunnerStateRunning   = "Running"
 	RunnerStateCompleted = "Completed"
+	RunnerStateExited    = "Exited"
+	RunnerStateError     = "Error"
 	RunnerStateUnknown   = "Unknown"
 )
+
+// runnerGone reports whether the runner process has exited, so the VM can't
+// take a job. Such VMs stay up only with shutdown_on_exit: false.
+func runnerGone(state string) bool {
+	return state == RunnerStateExited || state == RunnerStateError
+}
+
+// stoppable reports whether scale-down may stop a VM in this runner state.
+func stoppable(state string) bool {
+	return state == RunnerStateIdle || runnerGone(state)
+}
 
 // VMInfo is static information about a VM.
 type VMInfo struct {

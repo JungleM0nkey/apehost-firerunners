@@ -28,6 +28,10 @@ DEST[cache-proxy.env]=/etc/fireactions/cache-proxy.env;            MODE[cache-pr
 DEST[fireactions-cache-proxy.service]=/etc/systemd/system/fireactions-cache-proxy.service
 MODE[fireactions-cache-proxy.service]=644; UNIT[fireactions-cache-proxy.service]=fireactions-cache-proxy
 
+# ssh joins its arguments into one remote shell line; quote ones that may hold
+# systemd escapes (mount unit names like mnt-ramdisk-turbo\x2dcache.mount).
+rssh() { ssh "$HOST" "$(printf '%q ' "$@")"; }
+
 files=()
 for f in "$DIR"/*; do
   name=$(basename "$f")
@@ -54,12 +58,18 @@ scp -q "${files[@]/#/$DIR/}" "$HOST:$stage/"
 # Which files differ from what's installed?
 changed=()
 for name in "${files[@]}"; do
-  if ! ssh "$HOST" sudo cmp -s "$stage/$name" "${DEST[$name]}"; then
+  if ! rssh sudo cmp -s "$stage/$name" "${DEST[$name]}"; then
     changed+=("$name")
   fi
 done
 
-if [ ${#changed[@]} -eq 0 ]; then
+# Cache turned off for this host but a proxy is still installed: retire it.
+retire_cache=
+if [ ! -f "$DIR/cache-proxy.capnp" ] && ssh "$HOST" test -f /etc/systemd/system/fireactions-cache-proxy.service; then
+  retire_cache=1
+fi
+
+if [ ${#changed[@]} -eq 0 ] && [ -z "$retire_cache" ]; then
   echo "$HOST: up to date"; exit 0
 fi
 
@@ -68,6 +78,7 @@ for name in "${changed[@]}"; do
   echo "$HOST: ${DEST[$name]} changed"
   restart[${UNIT[$name]}]=1
 done
+[ -n "$retire_cache" ] && echo "$HOST: cache disabled; the installed cache proxy will be removed"
 
 if [ "$DRY" = "--dry-run" ]; then
   echo "$HOST: would restart: ${!restart[*]}"; exit 0
@@ -90,7 +101,7 @@ if [ -n "${restart[fireactions]:-}" ] && ssh "$HOST" systemctl is-active -q fire
 fi
 
 for name in "${changed[@]}"; do
-  ssh "$HOST" sudo install -D -m "${MODE[$name]}" -o root -g root "$stage/$name" "${DEST[$name]}"
+  rssh sudo install -D -m "${MODE[$name]}" -o root -g root "$stage/$name" "${DEST[$name]}"
 done
 ssh "$HOST" sudo systemctl daemon-reload
 
@@ -103,8 +114,8 @@ done
 if [ ${#mounts[@]} -gt 0 ]; then
   ssh "$HOST" sudo systemctl stop fireactions-cache-proxy 2>/dev/null || true
   for unit in "${mounts[@]}"; do
-    ssh "$HOST" sudo systemctl enable -q "$unit"
-    ssh "$HOST" sudo systemctl restart "$unit"
+    rssh sudo systemctl enable -q "$unit"
+    rssh sudo systemctl restart "$unit"
     echo "$HOST: remounted $unit"
   done
 fi
@@ -115,3 +126,16 @@ for unit in fireactions-cache-proxy fireactions; do
     echo "$HOST: restarted $unit"
   fi
 done
+
+# After fireactions restarted without TURBO_* env, no VM uses the proxy any more.
+if [ -n "$retire_cache" ]; then
+  mount=$(ssh "$HOST" systemctl show -p Requires --value fireactions-cache-proxy | tr ' ' '\n' | grep '\.mount$' || true)
+  ssh "$HOST" sudo systemctl disable --now fireactions-cache-proxy
+  if [ -n "$mount" ]; then
+    rssh sudo systemctl disable --now "$mount"
+    rssh sudo rm -f "/etc/systemd/system/$mount"
+  fi
+  ssh "$HOST" sudo rm -rf /etc/systemd/system/fireactions-cache-proxy.service /etc/fireactions/cache-proxy.env /opt/fireactions/cache-proxy
+  ssh "$HOST" sudo systemctl daemon-reload
+  echo "$HOST: removed the cache proxy${mount:+ and $mount}"
+fi
