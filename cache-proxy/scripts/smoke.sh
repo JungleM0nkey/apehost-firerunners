@@ -168,4 +168,13 @@ curl -fsS -D - "$UP/__control/object?key=team_smoke/dddd0001" -o "$T/d.up" | tr 
 cmp -s "$T/d.bin" "$T/d.up" || fail "retried upload bytes"
 ok "pending upload retried after workerd restart"
 
+# --- chunked PUT (no Content-Length) still lands on disk and upstream with a known length
+head -c 300 /dev/urandom >"$T/e.bin"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "${RW[@]}" -H 'Content-Type: application/octet-stream' \
+  -H 'Transfer-Encoding: chunked' --data-binary "@$T/e.bin" "$API/eeee0001")" = 202 ] || fail "chunked PUT"
+curl -fsS "${RW[@]}" "$API/eeee0001" -o "$T/e.out"
+cmp -s "$T/e.bin" "$T/e.out" || fail "chunked PUT bytes"
+until_true "upload of chunked PUT" upstream_has team_default_team/eeee0001
+ok "chunked PUT"
+
 echo "smoke: all checks passed"
