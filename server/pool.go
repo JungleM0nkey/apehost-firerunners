@@ -50,6 +50,13 @@ type PoolConfig struct {
 	Replicas       int                `yaml:"replicas" validate:"min=0"`
 	Runner         *RunnerConfig      `yaml:"runner" validate:"required"`
 	Firecracker    *FirecrackerConfig `yaml:"firecracker" validate:"required"`
+	// Min and Max clamp the desired VM count. Max is also the capacity a scale
+	// set advertises to GitHub.
+	Min *int `yaml:"min" validate:"omitempty,min=0"`
+	Max *int `yaml:"max" validate:"omitempty,min=1"`
+	// ScaleSet, when set, sizes the pool from a GitHub runner scale set
+	// instead of Replicas.
+	ScaleSet *ScaleSetConfig `yaml:"scale_set"`
 	// Env is added to the runner process environment in every VM of the pool,
 	// so every job step sees it. Values may be secrets: they are never logged.
 	Env map[string]string `yaml:"env"`
@@ -90,7 +97,7 @@ func NewPool(logger *zerolog.Logger, config *PoolConfig, backend VMBackend, dema
 	}
 
 	p.active.Store(true)
-	p.desired.Store(int32(demand.Desired(ctx)))
+	p.desired.Store(int32(p.clamp(demand.Desired(ctx))))
 
 	metricPoolRunnersCurrent.
 		WithLabelValues(p.config.Name, p.config.Runner.Organization).Set(float64(p.GetCurrentSize()))
@@ -107,6 +114,11 @@ func NewPool(logger *zerolog.Logger, config *PoolConfig, backend VMBackend, dema
 // Run starts the pool. Starting the pool will start the scaling process.
 func (p *Pool) Run() {
 	defer close(p.doneCh) // Signal that Run() has exited
+
+	// Demand sources with a background loop (scale sets) run for the pool's lifetime.
+	if r, ok := p.demand.(runnableDemand); ok {
+		go r.Run(p.ctx)
+	}
 
 	// Trigger initial scale
 	p.TriggerScale()
@@ -144,7 +156,7 @@ func (p *Pool) reconcile() {
 		return
 	}
 
-	desired := p.demand.Desired(p.ctx)
+	desired := p.clamp(p.demand.Desired(p.ctx))
 	p.desired.Store(int32(desired))
 
 	curSize := p.GetCurrentSize()
@@ -175,6 +187,17 @@ func (p *Pool) reconcile() {
 			-delta, desired, curSize, pendingCreates)
 		p.scaleDown(-delta)
 	}
+}
+
+// clamp limits n to the pool's min and max.
+func (p *Pool) clamp(n int) int {
+	if p.config.Max != nil && n > *p.config.Max {
+		n = *p.config.Max
+	}
+	if p.config.Min != nil && n < *p.config.Min {
+		n = *p.config.Min
+	}
+	return n
 }
 
 func (p *Pool) scaleUp(count int) {
@@ -299,8 +322,14 @@ func (p *Pool) idleVMs() []VM {
 	}
 	wg.Wait()
 
+	busy, _ := p.demand.(busyReporter)
+
 	idle := make([]VM, 0, len(candidates))
 	for i, vm := range candidates {
+		if busy != nil && busy.IsBusy(vm.Info().Name) {
+			p.logger.Debug().Msgf("VM %s has a job according to GitHub, not a scale-down candidate", vm.Info().Name)
+			continue
+		}
 		if states[i] == RunnerStateIdle {
 			idle = append(idle, vm)
 		} else {

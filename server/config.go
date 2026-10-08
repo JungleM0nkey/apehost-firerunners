@@ -121,6 +121,19 @@ func (c *Config) Validate() error {
 		if err := envvar.Validate(pool.Env); err != nil {
 			return fmt.Errorf("pool %s: %w", pool.Name, err)
 		}
+
+		if pool.Min != nil && pool.Max != nil && *pool.Min > *pool.Max {
+			return fmt.Errorf("pool %s: min (%d) is greater than max (%d)", pool.Name, *pool.Min, *pool.Max)
+		}
+
+		if pool.ScaleSet != nil {
+			if pool.Max == nil {
+				return fmt.Errorf("pool %s: scale_set requires max (the capacity advertised to GitHub)", pool.Name)
+			}
+			if pool.Replicas != 0 {
+				return fmt.Errorf("pool %s: replicas and scale_set are mutually exclusive; use min for warm VMs", pool.Name)
+			}
+		}
 	}
 
 	return nil

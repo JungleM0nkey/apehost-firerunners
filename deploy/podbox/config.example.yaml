@@ -16,6 +16,13 @@ github:
 pools:
 - name: fireactions-4vcpu-8gb
   replicas: 2
+  # Demand scaling (#14) instead of replicas: drop `replicas`, then
+  # min: 1                 # warm VMs kept even with no jobs
+  # max: 2                 # capacity advertised to GitHub for this host
+  # scale_set:
+  #   name: fireactions-4vcpu-8gb-podbox   # default: <pool>-<hostname>
+  #   labels: [fireactions-4vcpu-8gb]       # default: runner.labels
+  #   runner_group: default
   runner:
     name: fa-dashboard
     image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140

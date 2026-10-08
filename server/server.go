@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,14 +135,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	for _, poolConfig := range s.config.Pools {
-		backend, err := newFirecrackerBackend(s.logger, poolConfig, s.github, s.imageManager, s.containerd, &s.nextCID)
+		pool, err := s.newPool(poolConfig)
 		if err != nil {
-			return fmt.Errorf("creating pool backend: %w", err)
-		}
-
-		pool, err := NewPool(s.logger, poolConfig, backend, newFixedDemand(poolConfig.Replicas))
-		if err != nil {
-			return fmt.Errorf("creating pool: %w", err)
+			return fmt.Errorf("creating pool %s: %w", poolConfig.Name, err)
 		}
 
 		s.pools[poolConfig.Name] = pool
@@ -193,6 +189,47 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.logger.Info().Msg("Server stopped")
 	return nil
+}
+
+// newPool wires a pool to its demand source and Firecracker backend.
+func (s *Server) newPool(config *PoolConfig) (*Pool, error) {
+	var demand DemandSource
+	var registrar runnerRegistrar
+	var scaleSet *scaleSetDemand
+
+	if config.ScaleSet != nil {
+		hostname, err := os.Hostname()
+		if err != nil {
+			return nil, fmt.Errorf("hostname: %w", err)
+		}
+
+		logger := s.logger.With().Str("pool", config.Name).Str("component", "scaleset").Logger()
+		conn := newGitHubScaleSetConn(config, s.config.GitHub, s.github, hostname)
+		scaleSet = newScaleSetDemand(&logger, conn, *config.Max)
+		demand, registrar = scaleSet, scaleSet
+	} else {
+		demand = newFixedDemand(config.Replicas)
+		registrar = &restRegistrar{
+			installations: &installationFinder{github: s.github, runner: config.Runner},
+			runner:        config.Runner,
+		}
+	}
+
+	backend, err := newFirecrackerBackend(s.logger, config, registrar, s.imageManager, s.containerd, &s.nextCID)
+	if err != nil {
+		return nil, err
+	}
+
+	pool, err := NewPool(s.logger, config, backend, demand)
+	if err != nil {
+		return nil, err
+	}
+
+	if scaleSet != nil {
+		scaleSet.onChange = pool.TriggerScale
+	}
+
+	return pool, nil
 }
 
 func (s *Server) findPool(id string) (*Pool, error) {

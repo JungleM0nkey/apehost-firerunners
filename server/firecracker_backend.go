@@ -18,13 +18,10 @@ import (
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/firecracker-microvm/firecracker-go-sdk/client/models"
 	"github.com/hostinger/fireactions/helper/deepcopy"
-	"github.com/hostinger/fireactions/helper/github"
 	"github.com/hostinger/fireactions/helper/stringid"
 	"github.com/opencontainers/image-spec/identity"
 	"github.com/rs/zerolog"
 	"github.com/sirupsen/logrus"
-
-	githubv63 "github.com/google/go-github/v63/github"
 )
 
 const (
@@ -34,24 +31,23 @@ const (
 // firecrackerBackend is the real VMBackend: containerd snapshots, Firecracker
 // VMMs and GitHub JIT runner registration.
 type firecrackerBackend struct {
-	config         *PoolConfig
-	containerd     *containerd.Client
-	github         *github.Client
-	imageManager   *imageManager
-	installationID atomic.Int64
-	nextCID        *atomic.Uint32
-	logger         *zerolog.Logger
+	config       *PoolConfig
+	containerd   *containerd.Client
+	registrar    runnerRegistrar
+	imageManager *imageManager
+	nextCID      *atomic.Uint32
+	logger       *zerolog.Logger
 }
 
 var _ VMBackend = (*firecrackerBackend)(nil)
 
-func newFirecrackerBackend(logger *zerolog.Logger, config *PoolConfig, github *github.Client, imageManager *imageManager, containerdClient *containerd.Client, nextCID *atomic.Uint32) (*firecrackerBackend, error) {
+func newFirecrackerBackend(logger *zerolog.Logger, config *PoolConfig, registrar runnerRegistrar, imageManager *imageManager, containerdClient *containerd.Client, nextCID *atomic.Uint32) (*firecrackerBackend, error) {
 	l := logger.With().Str("pool", config.Name).Logger()
 
 	b := &firecrackerBackend{
 		config:       config,
 		containerd:   containerdClient,
-		github:       github,
+		registrar:    registrar,
 		imageManager: imageManager,
 		nextCID:      nextCID,
 		logger:       &l,
@@ -158,28 +154,12 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 		return nil, fmt.Errorf("firecracker: creating machine: %w", err)
 	}
 
-	installationID, err := b.getInstallationID(ctx)
+	encodedJITConfig, runnerID, err := b.registrar.Register(ctx, runnerName)
 	if err != nil {
 		return nil, err
 	}
 
-	client := b.github.Installation(installationID)
-	jitReq := &githubv63.GenerateJITConfigRequest{
-		Name:          runnerName,
-		RunnerGroupID: b.config.Runner.GroupID,
-		Labels:        b.config.Runner.Labels,
-	}
-	var jitConfig *githubv63.JITRunnerConfig
-	if repo := b.config.Runner.Repository; repo != "" {
-		jitConfig, _, err = client.Actions.GenerateRepoJITConfig(ctx, b.config.Runner.Organization, repo, jitReq)
-	} else {
-		jitConfig, _, err = client.Actions.GenerateOrgJITConfig(ctx, b.config.Runner.Organization, jitReq)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("github: %w", err)
-	}
-
-	metadata := runnerMetadata(b.config, runnerName, jitConfig.GetEncodedJITConfig())
+	metadata := runnerMetadata(b.config, runnerName, encodedJITConfig)
 	fcMachine.Handlers.FcInit = fcMachine.Handlers.FcInit.Append(firecracker.NewSetMetadataHandler(metadata))
 
 	vmmCtx, vmmCancel := context.WithCancel(ctx)
@@ -196,7 +176,7 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 	machine := &Machine{
 		Machine:     fcMachine,
 		Name:        runnerName,
-		RunnerID:    jitConfig.GetRunner().GetID(),
+		RunnerID:    runnerID,
 		Pool:        b.config.Name,
 		CreatedAt:   time.Now().UTC(),
 		vsockCID:    vsockCID,
@@ -211,7 +191,7 @@ func (b *firecrackerBackend) CreateVM(ctx context.Context) (VM, error) {
 		if deregistered.Load() {
 			return nil
 		}
-		if err := b.deleteGitHubRunner(ctx, runnerName, machine.RunnerID); err != nil {
+		if err := b.deleteGitHubRunner(ctx, runnerName, runnerID); err != nil {
 			return err
 		}
 		deregistered.Store(true)
@@ -291,26 +271,6 @@ func (b *firecrackerBackend) cleanupOnExit(ctx context.Context, machine *Machine
 	b.logger.Info().Msgf("Successfully cleaned up exited Firecracker VM %s", runnerName)
 }
 
-func (b *firecrackerBackend) getInstallationID(ctx context.Context) (int64, error) {
-	if id := b.installationID.Load(); id != 0 {
-		return id, nil
-	}
-
-	var installation *githubv63.Installation
-	var err error
-	if repo := b.config.Runner.Repository; repo != "" {
-		installation, _, err = b.github.Apps.FindRepositoryInstallation(ctx, b.config.Runner.Organization, repo)
-	} else {
-		installation, _, err = b.github.Apps.FindOrganizationInstallation(ctx, b.config.Runner.Organization)
-	}
-	if err != nil {
-		return 0, fmt.Errorf("github: %w", err)
-	}
-
-	b.installationID.Store(installation.GetID())
-	return installation.GetID(), nil
-}
-
 // createSnapshot creates a snapshot of the specified image.
 func (b *firecrackerBackend) createSnapshot(ctx context.Context, image containerd.Image, snapshotID string) ([]mount.Mount, error) {
 	snapshotService := b.containerd.SnapshotService(defaultSnapshotter)
@@ -352,19 +312,7 @@ func (b *firecrackerBackend) deleteGitHubRunner(ctx context.Context, runnerName 
 		return nil
 	}
 
-	if b.installationID.Load() == 0 {
-		return fmt.Errorf("no installation ID available, cannot delete runner %s", runnerName)
-	}
-
-	client := b.github.Installation(b.installationID.Load())
-
-	var err error
-	if repo := b.config.Runner.Repository; repo != "" {
-		_, err = client.Actions.RemoveRunner(ctx, b.config.Runner.Organization, repo, runnerID)
-	} else {
-		_, err = client.Actions.RemoveOrganizationRunner(ctx, b.config.Runner.Organization, runnerID)
-	}
-	if err != nil {
+	if err := b.registrar.Deregister(ctx, runnerID); err != nil {
 		return err
 	}
 

@@ -64,6 +64,18 @@ type DemandSource interface {
 	Desired(ctx context.Context) int
 }
 
+// runnableDemand is a DemandSource with a background loop, run for the
+// lifetime of the pool.
+type runnableDemand interface {
+	Run(ctx context.Context)
+}
+
+// busyReporter is a DemandSource that knows which runners have a job. The pool
+// never scales those VMs down.
+type busyReporter interface {
+	IsBusy(vmName string) bool
+}
+
 // fixedDemand is the classic `replicas` behaviour: a constant, operator-set count.
 type fixedDemand struct {
 	replicas atomic.Int32
