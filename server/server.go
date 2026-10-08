@@ -134,7 +134,12 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	for _, poolConfig := range s.config.Pools {
-		pool, err := NewPool(s.logger, poolConfig, s.github, s.imageManager, s.containerd, &s.nextCID)
+		backend, err := newFirecrackerBackend(s.logger, poolConfig, s.github, s.imageManager, s.containerd, &s.nextCID)
+		if err != nil {
+			return fmt.Errorf("creating pool backend: %w", err)
+		}
+
+		pool, err := NewPool(s.logger, poolConfig, backend, newFixedDemand(poolConfig.Replicas))
 		if err != nil {
 			return fmt.Errorf("creating pool: %w", err)
 		}
@@ -202,7 +207,7 @@ func (s *Server) findPool(id string) (*Pool, error) {
 	return pool, nil
 }
 
-func (s *Server) findMachine(id string) (*Machine, error) {
+func (s *Server) findMachine(id string) (VM, error) {
 	s.l.Lock()
 	defer s.l.Unlock()
 
