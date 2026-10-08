@@ -21,5 +21,5 @@ func TestNewRootCommand(t *testing.T) {
 	assert.NotNil(t, cmd.VersionTemplate())
 
 	assert.NotNil(t, cmd.Commands())
-	assert.Len(t, cmd.Commands(), 9)
+	assert.Len(t, cmd.Commands(), 10)
 }

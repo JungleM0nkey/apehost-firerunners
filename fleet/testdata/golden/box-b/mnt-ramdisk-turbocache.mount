@@ -1,0 +1,17 @@
+# Rendered by `fireactions fleet render` from fleet.yaml. Do not edit; edit fleet.yaml and re-render.
+# RAM-backed storage for fireactions-cache-proxy: artifacts and the index share
+# one tmpfs, so a reboot always yields a consistent cold cache.
+[Unit]
+Description=tmpfs for the fireactions Turborepo cache proxy
+DefaultDependencies=no
+Conflicts=umount.target
+Before=local-fs.target umount.target
+
+[Mount]
+What=tmpfs-fireactions-turbocache
+Where=/mnt/ramdisk/turbocache
+Type=tmpfs
+Options=size=5120M,mode=0700,nosuid,nodev,noexec
+
+[Install]
+WantedBy=local-fs.target

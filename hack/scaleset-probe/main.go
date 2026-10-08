@@ -40,7 +40,7 @@ func main() {
 func run(repo string, appID int64, keyFile string, args []string) error {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || appID == 0 || keyFile == "" || len(args) == 0 {
-		return fmt.Errorf("usage: scaleset-probe -repo OWNER/REPO -app-id ID -key FILE group|labels|session|ratelimit ...")
+		return fmt.Errorf("usage: scaleset-probe -repo OWNER/REPO -app-id ID -key FILE <group|labels|session|ratelimit> [args]")
 	}
 
 	key, err := os.ReadFile(keyFile)
@@ -101,7 +101,7 @@ func run(repo string, appID int64, keyFile string, args []string) error {
 
 	case "labels":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: labels NAME LABEL...")
+			return fmt.Errorf("usage: labels NAME LABEL [LABEL]")
 		}
 		want := &scaleset.RunnerScaleSet{Name: args[1], RunnerGroupID: 1}
 		for _, l := range args[2:] {

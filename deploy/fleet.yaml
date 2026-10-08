@@ -1,0 +1,37 @@
+# The fleet: every host, pool and cache in one place (#16).
+# Render with:  fireactions fleet render -f deploy/fleet.yaml -o rendered/
+# Apply with:   deploy/fleet-apply.sh podbox rendered/podbox
+# No secrets here: they come from FLEET_* environment variables at render time
+# (see `fireactions fleet render --help`). Never commit rendered/.
+github:
+  app_id: 5235650                      # apehost-fireactions
+  app_private_key_file: /etc/fireactions/app.pem
+
+defaults:
+  log_level: info
+  api: 127.0.0.1:18080                 # 8080/8081 are taken on podbox
+  metrics: 127.0.0.1:18081
+  cache:
+    # Off until the cache proxy is installed and #11 has sized it. To turn it on:
+    # set enabled: true and max_size from docs/research/2026-10-08-podbox-memory-budget.md,
+    # set team to the dashboard's TURBO_TEAM slug, and give pools `cache: ro|rw`.
+    enabled: false
+    team: CHANGE-ME-turbo-team-slug
+
+pools:
+  - name: fireactions-4vcpu-8gb
+    runner_name: fa-dashboard
+    repository: JungleM0nkey/apehost-connect-dashboard   # private; never a public repo
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb]
+    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    vcpu: 4
+    memory: 8GiB
+    replicas: 2
+    # After the #10 spike says go: drop replicas, then
+    # scale_set: true
+    # min: 1
+    # max: 2          # from #11
+    cache: off
+
+hosts:
+  podbox: {}

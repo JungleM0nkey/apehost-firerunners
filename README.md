@@ -7,6 +7,12 @@ Based on upstream **v2.0.8**. Licensed Apache-2.0, see [LICENSE](LICENSE) and [N
 ## Changes from upstream
 
 - **Repo-level runners** (`runner.repository`): upstream registers org-level runners only, so personal accounts can't use it. When `repository` is set, `organization` is treated as the owner and the server uses `FindRepositoryInstallation` / `GenerateRepoJITConfig` / `RemoveRunner`.
+- **Safe scale-down and drain** (#12): scale-down only stops VMs whose runner is idle, after GitHub agrees to remove the runner, so it never kills a job. `pools pause` drains a pool.
+- **Per-pool env** (`env:`, #8): variables added to the runner process in every VM of the pool, so every job step sees them. Never logged.
+- **Scale sets** (`scale_set:`, `min`, `max`, #14): a pool can size itself from a GitHub runner scale set (one per host, outbound long-poll only) instead of fixed `replicas`.
+- **Turborepo cache proxy** ([`cache-proxy/`](cache-proxy/), #13/#15): a workerd read-through cache on the VM bridge, with read-only tokens for PR pools.
+- **Fleet config** (`fireactions fleet render`, #16): one [`deploy/fleet.yaml`](deploy/fleet.yaml) rendered into each host's configs. `github.app_private_key_file` keeps the App key out of config files.
+- Refuses to register runners for public repositories.
 - Removed upstream's release workflows (release-please, goreleaser to `ghcr.io/hostinger`).
 
 ## Deploying on podbox
@@ -26,6 +32,21 @@ ssh podbox 'sudo install -m755 /tmp/fireactions /usr/local/bin/ && sudo bash /tm
 ```
 
 Workflows target the pool with `runs-on: [self-hosted, fireactions-4vcpu-8gb]`.
+
+### Fleet config (rendered)
+
+Host configs are rendered from [`deploy/fleet.yaml`](deploy/fleet.yaml); don't hand-edit `/etc/fireactions/config.yaml`.
+
+```bash
+# secrets only from the environment (needed once a pool uses the cache):
+export FLEET_CACHE_UPSTREAM_TOKEN=... FLEET_CACHE_TOKEN_RW=... FLEET_CACHE_TOKEN_RO=...
+go run ./cmd/fireactions fleet render -f deploy/fleet.yaml -o rendered/   # rendered/ is gitignored
+npm --prefix cache-proxy ci && npm --prefix cache-proxy run build         # only if the cache is enabled
+deploy/fleet-apply.sh podbox rendered/podbox --dry-run                      # what would change
+deploy/fleet-apply.sh podbox rendered/podbox                                # drains, installs, restarts
+```
+
+`fleet-apply.sh` restarts only units whose files changed, and drains every pool (waits for running jobs) before restarting fireactions. Adding a host is a `hosts:` entry plus `setup.sh` on the new machine.
 
 ### Gotchas we hit
 

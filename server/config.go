@@ -34,8 +34,11 @@ type MetricsConfig struct {
 }
 
 type GitHubConfig struct {
-	AppPrivateKey string `yaml:"app_private_key" validate:"required"`
-	AppID         int64  `yaml:"app_id" validate:"required"`
+	AppPrivateKey string `yaml:"app_private_key" validate:"required_without=AppPrivateKeyFile"`
+	// AppPrivateKeyFile is read at startup when AppPrivateKey is empty, so the
+	// config file itself can hold no secrets.
+	AppPrivateKeyFile string `yaml:"app_private_key_file"`
+	AppID             int64  `yaml:"app_id" validate:"required"`
 }
 
 type RunnerConfig struct {
@@ -108,7 +111,19 @@ func (c *Config) Load() error {
 		_ = file.Close()
 	}()
 
-	return yaml.NewDecoder(file).Decode(c)
+	if err := yaml.NewDecoder(file).Decode(c); err != nil {
+		return err
+	}
+
+	if c.GitHub != nil && c.GitHub.AppPrivateKey == "" && c.GitHub.AppPrivateKeyFile != "" {
+		key, err := os.ReadFile(c.GitHub.AppPrivateKeyFile)
+		if err != nil {
+			return fmt.Errorf("github app_private_key_file: %w", err)
+		}
+		c.GitHub.AppPrivateKey = string(key)
+	}
+
+	return nil
 }
 
 // Validate validates the configuration.

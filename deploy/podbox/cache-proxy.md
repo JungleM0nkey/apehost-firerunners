@@ -1,5 +1,7 @@
 # Turborepo cache proxy on podbox
 
+> Once a host is on rendered configs (#16), `fireactions fleet render` produces `config.capnp`, the env file and both systemd units from `deploy/fleet.yaml`, and `deploy/fleet-apply.sh` installs them. The hand-written files in this directory are the reference they were derived from.
+
 Every CI host runs `fireactions-cache-proxy`, a [workerd](https://github.com/cloudflare/workerd)
 process that serves the Turborepo remote-cache API to the Firecracker VMs on the bridge. Reads
 are served from a local RAM cache and fall through to `https://turbo.apehost.net`. Writes are

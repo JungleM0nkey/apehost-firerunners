@@ -44,3 +44,21 @@ func TestNewConfig_PoolEnv(t *testing.T) {
 		assert.NotContains(t, err.Error(), "s3cret")
 	})
 }
+
+func TestNewConfig_AppPrivateKeyFile(t *testing.T) {
+	base, err := os.ReadFile("testdata/config1.yaml")
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "app.pem")
+	require.NoError(t, os.WriteFile(keyPath, []byte("-----BEGIN RSA PRIVATE KEY-----\nfrom-file\n"), 0o600))
+
+	cfg := strings.Replace(string(base), "  app_private_key: |\n    -----BEGIN RSA PRIVATE KEY-----\n",
+		"  app_private_key_file: "+keyPath+"\n", 1)
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(cfg), 0o600))
+
+	config, err := NewConfig(path)
+	require.NoError(t, err)
+	assert.Contains(t, config.GitHub.AppPrivateKey, "from-file")
+}
