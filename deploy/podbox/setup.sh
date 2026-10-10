@@ -63,7 +63,7 @@ mkdir -p /var/lib/fireactions/kernels/6.18
 # discard_blocks hands freed blocks back after each VM.
 cat > /usr/local/sbin/fireactions-thinpool <<EOF
 #!/bin/bash
-# ponytail: 36G RAM cap (~2 replicas at 4vcpu/8GB); raise size= and the data file for more replicas
+# RAM-backed storage cap; budget guest RAM separately when adding pool replicas.
 set -euo pipefail
 dmsetup info $POOL >/dev/null 2>&1 && exit 0
 mkdir -p $CTR_ROOT

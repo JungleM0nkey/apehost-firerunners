@@ -39,7 +39,7 @@ pools:
   #   TURBO_API: http://10.200.0.1:8787
   #   TURBO_TOKEN: <proxy token>
   #   TURBO_CACHE: remote:rw
-  firecracker:
+  firecracker: &podbox-firecracker
     binary_path: /usr/local/bin/firecracker
     kernel_image_path: /var/lib/fireactions/kernels/6.18/vmlinux
     # No `noapic`: Firecracker >=1.8 describes virtio-mmio devices via ACPI and
@@ -48,4 +48,28 @@ pools:
     machine_config:
       vcpu_count: 4
       mem_size_mib: 8192
+# One warm 4-vCPU/8-GiB runner per repository. Keep fleet deployment jobs on
+# the persistent podbox runner; these VMs are disposable test executors.
+- name: fireactions-harness
+  replicas: 1
+  runner:
+    name: fa-harness
+    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image_pull_policy: IfNotPresent
+    group_id: 1
+    organization: JungleM0nkey
+    repository: apehost-desktop-harness
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, harness-tests]
+  firecracker: *podbox-firecracker
+- name: fireactions-herdr-plugins
+  replicas: 1
+  runner:
+    name: fa-herdr-plugins
+    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image_pull_policy: IfNotPresent
+    group_id: 1
+    organization: JungleM0nkey
+    repository: apehost-herdr-plugins
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, herdr-plugin-tests]
+  firecracker: *podbox-firecracker
 log_level: info
