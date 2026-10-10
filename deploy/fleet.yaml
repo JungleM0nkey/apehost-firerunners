@@ -33,5 +33,25 @@ pools:
     # max: 2          # from #11
     cache: off
 
+  - name: fireactions-harness
+    runner_name: fa-harness
+    repository: JungleM0nkey/apehost-desktop-harness
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, harness-tests]
+    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    vcpu: 4
+    memory: 8GiB
+    replicas: 1
+    cache: off
+
+  - name: fireactions-herdr-plugins
+    runner_name: fa-herdr-plugins
+    repository: JungleM0nkey/apehost-herdr-plugins
+    labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, herdr-plugin-tests]
+    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    vcpu: 4
+    memory: 8GiB
+    replicas: 1
+    cache: off
+
 hosts:
   podbox: {}
