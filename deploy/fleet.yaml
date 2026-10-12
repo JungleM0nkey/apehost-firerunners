@@ -23,7 +23,7 @@ pools:
     runner_name: fa-dashboard
     repository: JungleM0nkey/apehost-connect-dashboard   # private; never a public repo
     labels: [self-hosted, fireactions, fireactions-4vcpu-8gb]
-    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-runner2.338.0-node24.21.0-ed94d18
     vcpu: 4
     memory: 8GiB
     replicas: 2
@@ -37,7 +37,7 @@ pools:
     runner_name: fa-harness
     repository: JungleM0nkey/apehost-desktop-harness
     labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, harness-tests]
-    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-runner2.338.0-node24.21.0-ed94d18
     vcpu: 4
     memory: 8GiB
     replicas: 1
@@ -47,7 +47,7 @@ pools:
     runner_name: fa-herdr-plugins
     repository: JungleM0nkey/apehost-herdr-plugins
     labels: [self-hosted, fireactions, fireactions-4vcpu-8gb, herdr-plugin-tests]
-    image: ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
+    image: ghcr.io/junglem0nkey/fireactions-runner:ubuntu24.04-runner2.338.0-node24.21.0-ed94d18
     vcpu: 4
     memory: 8GiB
     replicas: 1
