@@ -7,7 +7,7 @@
 #     --build-arg NODE_VERSION=... .
 ARG BASE_IMAGE=ghcr.io/hostinger/fireactions-images/ubuntu24.04:20260901114140
 
-FROM golang:1.26 AS agent
+FROM golang:1.27 AS agent
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
