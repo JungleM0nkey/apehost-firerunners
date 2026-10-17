@@ -19,8 +19,8 @@ export interface Env {
 }
 
 export interface Settings {
-  /** Upstream base URL, e.g. https://turbo.apehost.net (no trailing slash). */
-  upstream: string;
+  /** Upstream base URL, or null for a standalone local cache. */
+  upstream: string | null;
   /** LRU cap for artifact bytes kept on disk. */
   maxBytes: number;
   /** Period of the maintenance alarm (upload retries + eviction). */
@@ -30,8 +30,8 @@ export interface Settings {
 export function readSettings(env: Env): Settings {
   const raw = (env.SETTINGS ?? {}) as Record<string, unknown>;
   const upstream = raw.upstream;
-  if (typeof upstream !== "string" || !/^https?:\/\/[^/]+/.test(upstream)) {
-    throw new Error("SETTINGS.upstream must be an http(s) URL");
+  if (upstream !== null && (typeof upstream !== "string" || !/^https?:\/\/[^/]+/.test(upstream))) {
+    throw new Error("SETTINGS.upstream must be an http(s) URL or null");
   }
   const maxBytes = raw.maxBytes ?? 4 * 1024 ** 3;
   if (typeof maxBytes !== "number" || !Number.isFinite(maxBytes) || maxBytes <= 0) {
@@ -41,7 +41,7 @@ export function readSettings(env: Env): Settings {
   if (typeof interval !== "number" || !Number.isFinite(interval) || interval < 1) {
     throw new Error("SETTINGS.maintenanceIntervalSeconds must be >= 1");
   }
-  return { upstream: upstream.replace(/\/+$/, ""), maxBytes, maintenanceIntervalSeconds: interval };
+  return { upstream: upstream === null ? null : upstream.replace(/\/+$/, ""), maxBytes, maintenanceIntervalSeconds: interval };
 }
 
 /** Upstream default namespace: `${teamId ?? slug ?? DEFAULT_TEAM_ID}/${hash}`. */

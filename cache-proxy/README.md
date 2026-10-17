@@ -16,6 +16,9 @@ running on self-hosted [workerd](https://github.com/cloudflare/workerd).
 - **Metrics** (Prometheus text) are served only on a separate loopback socket.
 
 For the podbox install, see [`deploy/podbox/cache-proxy.md`](../deploy/podbox/cache-proxy.md).
+For a standalone Windows cache shared over Cloudflare Mesh, see
+[`deploy/windows/README.md`](deploy/windows/README.md). With `upstream: null`, misses return
+`404`, writes become immediately eligible for eviction, and no maintenance alarm is scheduled.
 
 ## Development
 
@@ -85,7 +88,8 @@ Metrics:
 | `turbo_proxy_max_bytes` | gauge | none |
 
 Counters are kept in the index's SQLite database. They survive a process restart and reset on
-reboot, because the tmpfs is wiped.
+reboot on the podbox tmpfs install. The Windows install uses persistent disk, so they also
+survive a reboot there.
 
 ## workerd binding contract
 
@@ -114,9 +118,9 @@ The Worker module is `worker.js` (`dist/worker.js` after `npm run build`). It ex
 
 | Key | Required | Default | Meaning |
 |---|---|---|---|
-| `upstream` | yes | none | http(s) base URL of the upstream cache, without the `/v8` path |
+| `upstream` | yes | none | http(s) base URL without `/v8`, or `null` for a standalone cache |
 | `maxBytes` | no | 4 GiB | LRU cap on artifact bytes |
-| `maintenanceIntervalSeconds` | no | 60 | Period of the self-rescheduling alarm, which retries pending uploads and evicts down to the cap |
+| `maintenanceIntervalSeconds` | no | 60 | Upstream mode only: period of the alarm that retries pending uploads and evicts down to the cap |
 
 Sockets: the default entrypoint goes on the bridge (`10.200.0.1:8787`). The `Metrics`
 entrypoint goes on loopback (`127.0.0.1:9787`) only.
