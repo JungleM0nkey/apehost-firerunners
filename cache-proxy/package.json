@@ -7,7 +7,7 @@
   "scripts": {
     "build": "esbuild src/index.ts --bundle --format=esm --target=es2024 --platform=neutral --external:cloudflare:* --outfile=dist/worker.js",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.local.config.ts",
     "smoke": "bash scripts/smoke.sh"
   },
   "devDependencies": {

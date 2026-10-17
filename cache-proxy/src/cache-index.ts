@@ -58,6 +58,11 @@ export class CacheIndex extends DurableObject<Env> {
       this.sql.exec("CREATE INDEX IF NOT EXISTS artifacts_lru ON artifacts (pending, last_access)");
       this.sql.exec("CREATE TABLE IF NOT EXISTS counters (series TEXT PRIMARY KEY, value INTEGER NOT NULL)");
       this.clock = this.one<{ t: number | null }>("SELECT max(last_access) AS t FROM artifacts")?.t ?? 0;
+      if (readSettings(env).upstream === null) {
+        this.sql.exec("UPDATE artifacts SET pending = 0");
+        await ctx.storage.deleteAlarm();
+        return;
+      }
       // Fresh instance (process start or eviction): retry leftover pending uploads soon and make
       // sure the self-rescheduling maintenance alarm exists.
       const pending = this.pendingCount() > 0;
@@ -148,6 +153,7 @@ export class CacheIndex extends DurableObject<Env> {
   }
 
   private async doUpload(ns: string, hash: string): Promise<boolean> {
+    if (readSettings(this.env).upstream === null) return true;
     const row = this.one<{ headers: string; query: string }>(
       "SELECT headers, query FROM artifacts WHERE ns = ? AND hash = ? AND pending = 1",
       ns,
@@ -195,6 +201,7 @@ export class CacheIndex extends DurableObject<Env> {
   kick(): void {}
 
   override async alarm(): Promise<void> {
+    if (readSettings(this.env).upstream === null) return;
     try {
       const pending = this.sql
         .exec<{ ns: string; hash: string }>("SELECT ns, hash FROM artifacts WHERE pending = 1 ORDER BY last_access")
