@@ -5,5 +5,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["vitest.config.ts", "test/node/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mjs"]
+  "include": ["vitest*.config.ts", "test/node/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mjs"]
 }

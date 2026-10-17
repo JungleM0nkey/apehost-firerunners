@@ -94,7 +94,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
       return read(method, hash, t, env, ctx, settings, index);
     case "PUT":
       if (scope !== "rw") return json({ error: "token is read-only" }, 403);
-      return write(request, hash, t, env, ctx, index);
+      return write(request, hash, t, env, ctx, settings, index);
     default:
       return json({ error: "method not allowed" }, 405, { allow: "GET, HEAD, PUT" });
   }
@@ -122,6 +122,10 @@ async function read(
     await index.forget(t.ns, hash); // index said yes, disk said no (e.g. tmpfs wiped)
   }
 
+  if (settings.upstream === null) {
+    count("misses");
+    return notFound();
+  }
   let res: Response;
   try {
     res = await env.UPSTREAM.fetch(upstreamUrl(settings, hash, t.query), { method, headers: upstreamHeaders(env) });
@@ -165,13 +169,17 @@ async function write(
   t: Target,
   env: Env,
   ctx: ExecutionContext,
+  settings: Settings,
   index: Index,
 ): Promise<Response> {
   if (!request.body) return json({ error: "missing body" }, 400);
   const length = Number(request.headers.get("content-length") ?? NaN);
-  const ok = await store(env, index, t, hash, request.body, length, pickHeaders(request.headers, UPLOAD_HEADERS), true);
+  const pending = settings.upstream !== null;
+  if (!pending && (!Number.isSafeInteger(length) || length < 0)) return json({ error: "Content-Length required" }, 411);
+  if (!pending && length > settings.maxBytes) return json({ error: "artifact exceeds cache capacity" }, 413);
+  const ok = await store(env, index, t, hash, request.body, length, pickHeaders(request.headers, UPLOAD_HEADERS), pending);
   if (!ok) return json({ error: "could not store artifact" }, 500);
-  ctx.waitUntil(index.upload(t.ns, hash)); // write-behind; the alarm retries on failure
+  if (pending) ctx.waitUntil(index.upload(t.ns, hash)); // write-behind; the alarm retries on failure
   return json({ urls: [`${new URL(request.url).origin}/v8/artifacts/${hash}${t.query}`] }, 202);
 }
 
